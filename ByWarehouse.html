@@ -1,0 +1,1410 @@
+<!doctype html>
+<!-- Test comment to check patching -->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>iPhone Colour Breakdown (Self‑Contained Snapshot)</title>
+  <style>
+    :root{--bg:#0b0c10;--fg:#e6e6e6;--muted:#a7a7a7;--accent:#87c4ff;--card:#14161c;--chip:#1b1f28;--border:#283041}
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.35 system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial}
+    header{position:sticky;top:0;z-index:10;background:linear-gradient(180deg,var(--bg),rgba(11,12,16,.6));backdrop-filter:saturate(1.1) blur(2px);border-bottom:1px solid var(--border)}
+    .wrap{max-width:1200px;margin:0 auto;padding:16px}
+    h1{font-size:18px;margin:0 0 6px}
+    .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:14px}
+    input[type="file"], input[type="text"], select, textarea{background:#0f121a;border:1px solid var(--border);color:var(--fg);padding:10px 12px;border-radius:10px;outline:none}
+    textarea{width:100%;min-height:180px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
+    button{background:#1e293b;border:1px solid var(--border);color:var(--fg);padding:10px 14px;border-radius:12px;cursor:pointer}
+    button.primary{background:var(--accent);border-color:#5ba9ff;color:#0b0c10;font-weight:600}
+    button:disabled{opacity:.6;cursor:not-allowed}
+    .muted{color:var(--muted)}
+    .chip{display:inline-flex;gap:6px;align-items:center;padding:6px 10px;background:var(--chip);border:1px solid var(--border);border-radius:999px}
+    table{width:100%;border-collapse:collapse}
+    th,td{padding:8px 10px;border-bottom:1px solid var(--border)}
+    th{color:#cfd8e3;text-align:left;font-weight:600}
+    .indent{padding-left:24px;color:#d6e1f3}
+    /* second level indent for warehouse rows */
+    .indent2{padding-left:44px;color:#d6e1f3}
+    .total{font-weight:700;border-top:1px solid var(--border)}
+    .hint{font-size:12px;color:#9aa4b2}
+    .section{margin-top:16px}
+    .right{text-align:right}
+    .kbd{font:12px/1.2 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;background:#0f172a;border:1px solid var(--border);padding:2px 6px;border-radius:6px}
+
+    /* Multi-select chips */
+    .chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+    .chipbtn{padding:8px 12px;border:1px solid var(--border);border-radius:999px;background:#0f172a;color:#cbd5e1;cursor:pointer;user-select:none}
+    .chipbtn.active{background:var(--accent);color:#0b0c10;border-color:#5ba9ff;font-weight:700}
+
+    /* Tokenized model filter */
+    .tokens{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    .token{display:flex;align-items:center;gap:6px;background:#0f172a;border:1px solid var(--border);border-radius:999px;padding:6px 10px}
+    .token .x{cursor:pointer;opacity:.8}
+    .tokeninput{min-width:220px;flex:1}
+    .sugg{position:relative}
+    .sugglist{position:absolute;z-index:20;background:#0f121a;border:1px solid var(--border);border-radius:10px;max-height:220px;overflow:auto;padding:6px;display:none}
+    .sugglist.open{display:block}
+    .suggitem{padding:6px 8px;border-radius:8px;cursor:pointer}
+    .suggitem:hover{background:#121a2b}
+
+    /* Error message for token validation */
+    .error{color:#fca5a5;font-size:12px;margin-top:6px}
+
+    details{margin-top:10px}
+    summary{cursor:pointer;color:#dbeafe}
+  </style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1>iPhone Colour Breakdown <span class="muted">— Self‑Contained Snapshot</span></h1>
+    <div id="status" class="muted">No dataset loaded</div>
+    <!-- Display which CSV file was auto-loaded -->
+    <span id="lastUpdatedBadge" style="font-size:12px;opacity:0.8;margin-left:8px;"></span>
+  </div>
+</header>
+
+<main class="wrap">
+  <!-- Controls first, table later (more room for filters) -->
+  <section class="card">
+    <div class="row" id="uploadRow">
+      <input id="file" type="file" accept=".xlsx,.xls,.csv" />
+      <button id="btnParse" class="primary">Load file</button>
+      <button id="btnExportHTML" disabled>Export Full HTML (Snapshot)</button>
+      <!-- Additional batch filter input: allows uploading a CSV/XLSX with Region, Model Grade, Offer columns -->
+      <input id="batchFile" type="file" accept=".xlsx,.xls,.csv" style="margin-left:8px" />
+      <button id="btnBatchFilter" title="Load batch filter of Region/Model Grade/Offer">Batch filter</button>
+    </div>
+
+    <div class="row section">
+      <div class="tokens" style="width:100%">
+        <div id="tokenWrap" class="tokens"></div>
+      </div>
+      <div class="sugg" style="width:100%">
+        <input id="modelInput" class="tokeninput" type="text" placeholder="Type to add model tokens… (OR filter, grade removed automatically)" />
+        <div id="sugglist" class="sugglist"></div>
+        <!-- Error message for invalid model tokens -->
+        <div id="tokenError" class="error" style="display:none"></div>
+      </div>
+    </div>
+
+    <div class="row section">
+      <input id="q" type="text" placeholder="Free text search… (applies to Model/Capacity/Grade)" style="min-width:320px" />
+      <button id="btnClear">Clear filters</button>
+      <div class="muted">Model tokens = OR (grade ignored). Use the <strong>Region</strong>, <strong>Grade</strong>, and <strong>Category</strong> chips to narrow further.</div>
+    </div>
+
+    <div class="section">
+      <div class="muted">Regions (multi-select chips):</div>
+      <div id="regionChips" class="chips"></div>
+    </div>
+
+    <div class="section">
+      <div class="muted">Grades (multi-select chips):</div>
+      <div id="gradeChips" class="chips"></div>
+    </div>
+
+    <div class="section">
+      <div class="muted">Categories (multi-select chips):</div>
+      <div id="categoryChips" class="chips"></div>
+    </div>
+
+    <div class="section">
+      <div class="muted">SIM (multi-select chips):</div>
+      <div id="simChips" class="chips"></div>
+    </div>
+
+    <div class="section">
+      <div class="muted">Preorder:</div>
+      <div id="preorderChips" class="chips"></div>
+    </div>
+
+    <div class="section">
+      <div class="muted">Locked unit:</div>
+      <div id="lockedChips" class="chips"></div>
+    </div>
+
+    <details class="section">
+      <summary>Region classification (click to open) — defaults loaded; you can add more lines (format: <span class="kbd">LOCATION_CODE<TAB>REGION</span>)</summary>
+      <textarea id="regionMapBox"></textarea>
+      <div class="row" style="margin-top:8px">
+        <button id="btnApplyMap">Apply Mapping</button>
+        <button id="btnDownloadMap">Download Mapping</button>
+        <span class="hint">When applied, the dataset is reprocessed using this mapping (no re-upload).</span>
+      </div>
+    </details>
+
+    <div class="card section">
+      <div class="row">
+        <button id="btnExportXlsx" disabled>Export Excel (All Countries)</button>
+        <button id="btnExportView" disabled>Export Excel (Filtered View)</button>
+        <span class="hint">Excel export uses <strong>ExcelJS</strong> with borders, bold model rows, indentation, widths, and frozen header.</span>
+      </div>
+    </div>
+
+    <div class="card section">
+      <div class="row">
+        <button id="btnExportOrderCsv" disabled>Export Order CSV</button>
+        <button id="btnExportValidationCsv" disabled>Export Validation CSV</button>
+        <span class="hint">Order exports use the quantities and offers you specify in the breakdown table below.</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="card section">
+    <div class="row">
+        <div class="muted">Showing <span id="rowsCount">0</span> rows</div>
+        <!-- New button: take all quantities for currently filtered rows -->
+        <button id="btnTakeAllFiltered" title="Set all filtered rows to their maximum quantity" style="margin-left:auto; margin-right:8px; padding:6px 12px; font-size:13px">All (filtered)</button>
+        <!-- Summary only toggle: hides colour breakdown rows when checked -->
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Show only model-grade totals">
+          <input type="checkbox" id="summaryToggle" />
+          <span class="muted">Summary only</span>
+        </label>
+    </div>
+    <div id="table"></div>
+  </section>
+</main>
+
+<script id="dataset" type="application/json"></script>
+
+<!-- Libs -->
+<script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+
+<!-- Autoload CSV script: fetches a dataset CSV and feeds it into the
+     existing pipeline. See README for query parameters controlling
+     behaviour. -->
+<script>
+(function(){
+  async function autoloadCSV(){
+    try{
+      const params = new URLSearchParams(window.location.search);
+      if(params.has('disableAutoload')) return;
+      // Resolve which dataset to load. Prefer ?dataset=, then try data/latest.csv,
+      // otherwise attempt to scan the data/ directory for a single CSV file.
+      let dataset = params.get('dataset');
+      let baseName = null;
+      if(!dataset){
+        // Try the conventional name first
+        try{
+          const testRes = await fetch('data/latest.csv', {cache:'no-store'});
+          if(testRes.ok){
+            dataset = 'data/latest.csv';
+            baseName = 'latest.csv';
+          }
+        }catch(e){}
+        // If latest.csv doesn't exist, attempt to find any CSV in the directory listing
+        if(!dataset){
+          try{
+            const listing = await fetch('data/', {cache:'no-store'});
+            if(listing.ok){
+              const html = await listing.text();
+              const match = html && html.match(/href="([^"\?#]+\.csv)"/i);
+              if(match){
+                const fname = match[1].split('/').pop();
+                dataset = 'data/' + fname;
+                baseName = fname;
+              }
+            }
+          }catch(e){}
+        }
+      } else {
+        baseName = dataset.split('/').pop();
+      }
+      if(!dataset){
+        console.warn('No CSV found to autoload');
+        return;
+      }
+      // Append a cache-busting parameter to avoid stale caches
+      const buster = params.get('v') || Date.now();
+      const csvPath = dataset + (dataset.includes('?') ? '&' : '?') + 'v=' + buster;
+      const res = await fetch(csvPath, {cache:'no-store'});
+      if(!res.ok) throw new Error(`Autoload failed (${res.status} ${res.statusText})`);
+      const text = await res.text();
+      // Wrap the CSV text in a File object so the existing parsing path is used
+      const blob = new Blob([text], {type:'text/csv'});
+      const file = new File([blob], baseName || 'latest.csv', {type:'text/csv'});
+      const fileInput = document.getElementById('file');
+      if(!fileInput) return;
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      fileInput.files = dt.files;
+      // Trigger the Parse button click to run the original handler
+      const parseBtn = document.getElementById('btnParse');
+      if(parseBtn) parseBtn.click();
+      // Leave the upload row visible so the user can load another file manually
+      const upRow = document.getElementById('uploadRow');
+      // (not hiding upload UI)
+      // Update the status and the badge with loaded file name
+      const statusEl = document.getElementById('status');
+      if(statusEl) statusEl.textContent = `Loaded: ${baseName}`;
+      const badge = document.getElementById('lastUpdatedBadge');
+      if(badge) badge.textContent = `Loaded: ${baseName}`;
+    } catch(err){
+      console.warn(err);
+    }
+  }
+  document.addEventListener('DOMContentLoaded', autoloadCSV);
+})();
+</script>
+
+<script>
+(function(){
+  const $ = sel => document.querySelector(sel);
+  const $$ = sel => Array.from(document.querySelectorAll(sel));
+  const status = msg => { $('#status').textContent = msg; };
+  const fmtInt = n => (n||0).toLocaleString();
+
+  // ==== Region mapping (defaults) ====
+  const DEFAULT_REGION_MAP_TEXT = `AU_IE_VERSER_B2B\tAU
+AU_B2C\tAU
+AU_IE_VERSER_B2B_Boxed\tAU
+US_B2B\tUS
+US_B2C\tUS
+US_B2B_Boxed\tUS
+UK_MRC_MVA_B2B_Boxed\tUK
+UK_MRC_VAT_B2B_Boxed\tUK
+UK_MRC_VAT_B2B\tUK
+UK_MRC_MVA_B2B\tUK
+UK_MRC_MVA_B2C\tUK
+UK_MRC_VAT_B2C\tUK
+UK_IE_MVA_B2C\tUK
+UK_MRC_VAT_RMA\tUK
+US_RMA\tUS
+AU_IE_B2B_Boxed\tAU
+AU_B2B\tAU
+AU_IE_B2B\tAU
+HK_FSET_B2B\tHK
+HK_FSET_RMA\tHK
+AU_RMA\tAU
+DHL_DE\tIE
+DHL_FR\tIE
+DHL_IT\tIE
+DHL_SP\tIE
+DHL_CH\tIE
+SCHNL\tIE
+DHLNL\tIE
+UK_IE_MVA_B2B\tUK
+UTLUK\tUK
+UK_IE_MVA_RMA\tUK
+UK_IE_VAT_B2B\tUK
+AU_IE_RMA\tAU
+UK_IE_VAT_B2C\tUK
+UK_IE_VAT_RMA\tUK
+UK_MRC_MVA_RMA\tUK
+HK_IE_FSET_B2B\tHK
+HK_IE_FSET_RMA\tHK
+US_IE_B2B\tUS
+US_IE_RMA\tUS
+IE_IE_MVA_B2B\tIE
+IE_IE_VAT_B2B\tIE
+IE_LOOP_MVA_B2C\tIE
+IE_LOOP_VAT_B2C\tIE
+IE_LOOP_MVA_RMA\tIE
+IE_LOOP_VAT_RMA\tIE
+IE_IE_MVA_RMA\tIE
+IE_IE_VAT_RMA\tIE
+DSCAU\tAU
+SCHJP\tJP
+JP_B2C\tJP
+JP_RMA\tJP
+SCHKR\tKR
+SCHTW\tTW
+UK_MRC_MVA_B2C\tUK
+AU_processing\tAU
+KR_IE_SKN_B2B\tKR
+IE_IE_MVA_B2C\tIE
+Loop IE\tIE
+UK_MRC_MVA_B2C_PRM\tUK
+UK_MRC_VAT_B2C_PRM\tUK
+IE_LOOP_MVA_B2C_PRM\tIE
+IE_LOOP_VAT_B2C_PRM\tIE
+US_B2B_2\tUS
+US_MI_B2B\tUS
+DUB_B2B\tDUB
+DUB_B2B_BOXED\tDUB
+DUB_B2B_2\tDUB
+CA_B2B_Boxed\tCA`;
+
+  function parseRegionMap(text){
+    const map = Object.create(null);
+    (text||'').split(/\r?\n/).forEach(line=>{
+      const t = line.trim(); if(!t) return;
+      const [code, region] = t.split(/\t|\s{2,}|\s,|,/); // allow tab or comma
+      if(code && region) map[code.trim()] = region.trim().toUpperCase();
+    });
+    return map;
+  }
+
+  // ==== Column helpers ====
+  function pickCol(cols, aliases){
+    const lower = Object.fromEntries(cols.map(c=>[c.toLowerCase(),c]));
+    for(const a of aliases){ if(lower[a.toLowerCase()]) return lower[a.toLowerCase()]; }
+    return null;
+  }
+  function normalizeQty(v){
+    if(v==null) return 0; const s = String(v).replace(/,/g,'').trim();
+    if(!s || s.toLowerCase()==='nan' || s.toLowerCase()==='none') return 0; const f = Number(s); return isFinite(f)? Math.round(f):0;
+  }
+  function isIphone(row, colFamily, colModel){
+    const fam = (colFamily? String(row[colFamily]||'').toLowerCase(): '');
+    const m = (colModel? String(row[colModel]||'').toLowerCase(): '');
+    return fam.includes('iphone') || m.includes('iphone');
+  }
+
+  // Determine if a network should be excluded when LOCKED_EXCLUDE is true.
+  // Networks like AT&T, FAP, TracFone/StraightTalk, and specific battery/carrier descriptors are excluded.
+  // Also exclude values containing "Locked" but not containing "Unlocked".
+  function isDontIncludeNetwork(net){
+    if(!net) return false;
+    const n = String(net).toLowerCase();
+    // Explicit phrases
+    if(/at&\s*t/i.test(n)) return true;
+    if(/\bfap\b/i.test(n)) return true;
+    if(/tracfone|straight.?talk/i.test(n)) return true;
+    if(/new battery, carrier unlocked/i.test(n)) return true;
+    if(/premium battery, oem parts, carrier unlocked/i.test(n)) return true;
+    // Generic locked but not unlocked
+    if(/locked/.test(n) && !/unlocked/.test(n)) return true;
+    return false;
+  }
+  function extractCapacity(text){ if(!text) return ''; const m = String(text).toUpperCase().match(/(\d+\s*(GB|TB))/); return m? m[1].replace(/\s+/g,'') : ''; }
+  function modelBase(text, cap, grade){
+    if(!text) return 'Unknown Model'; let t = String(text).trim(); const C = (cap||'').toUpperCase();
+    if(C && t.toUpperCase().includes(C)) t = t.replace(new RegExp(C,'i'),'').trim();
+    t = t.replace(/-(W|WP|A|B|C|Z|DX)\b/i,'').trim(); t = t.replace(/\s{2,}/g,' '); return t;
+  }
+  function buildHeader(row, colModel, colGrade, colCapacity){
+    const m = colModel? row[colModel]: ''; const g = (colGrade? String(row[colGrade]||'').trim().toUpperCase(): '');
+    let cap = (colCapacity? String(row[colCapacity]||'').trim().toUpperCase(): ''); if(!cap) cap = extractCapacity(m);
+    const base = modelBase(m, cap, g); let label = base; if(cap) label += ' ' + cap; if(g) label += '-' + g; return label || 'Unknown Model';
+  }
+
+  // ==== Data store ====
+  let DATA = { raw: [], rows: [], cols: [], mapping: {}, meta: {name:null, hash:null, ts:Date.now(), countries:[], grades:[], categories:[], sims:[]}, regionMap: parseRegionMap(DEFAULT_REGION_MAP_TEXT) };
+
+  // ===== Batch filter storage =====
+  // Stores the set of (Region, Model Grade) pairs uploaded via batch filter for filtering.
+  // The key format is "REGION\tmodel-grade" (region upper‑case, model-grade lower‑case).
+  let BATCH_SET = new Set();
+
+  // ===== Chip selections =====
+  // Declare selected sets before the snapshot boot logic so they exist when populateFilters is called.
+  let SELECTED_COUNTRIES = new Set();
+  let SELECTED_GRADES = new Set();
+  let SELECTED_CATEGORIES = new Set();
+  let SELECTED_SIMS = new Set();
+
+  // ===== Binary filters for preorder and locked units =====
+  // When PREORDER_INCLUDE is false, preorder quantities are excluded from the effective quantity.
+  let PREORDER_INCLUDE = false;
+  // When LOCKED_EXCLUDE is true, rows with certain network indicators (AT&T, FAP, TracFone/StraightTalk, New/Premium Battery, and generic Locked) are filtered out.
+  let LOCKED_EXCLUDE = true;
+
+  // ===== Order and aggregation mappings =====
+  // AGG_MAP stores details of each aggregated row keyed by a composite key.
+  let AGG_MAP = {};
+  // ORDER_ENTRIES stores user‑entered order quantities and offers keyed by the same composite key.
+  let ORDER_ENTRIES = {};
+
+  // ===== Summary toggle =====
+  // When true, colour breakdown rows are hidden and only model-grade totals are shown
+  let SHOW_SUMMARY_ONLY = false;
+
+  // ===== Expansion state =====
+  // To allow expanding models and colours even in summary mode, we track which
+  // model headers and colour rows are expanded. Keys are encoded strings
+  // (see renderTable for encoding). By default nothing is expanded. When
+  // summary mode is enabled, colour rows are collapsed unless expanded.
+  let EXPANDED_MODELS = {};
+  let EXPANDED_COLORS = {};
+
+  // ===== Model suggestion helper =====
+  // Suggestion lists for model filter; declare early for snapshot initialisation
+  // MODEL_SUGG holds the human‑readable model strings. MODEL_SUGG_LOWER holds
+  // lower‑case versions for matching/validation. Declaring these here ensures
+  // they are defined before any snapshot boot logic runs, avoiding temporal
+  // dead‑zone issues when buildModelSuggestions() is called during initialisation.
+  let MODEL_SUGG = [];
+  let MODEL_SUGG_LOWER = [];
+
+  // ===== Tokenized model OR-filter (gradeless) =====
+  // Declare MODEL_TOKENS and regex constants before any snapshot boot logic. These
+  // are used by buildModelSuggestions() and other functions during initialisation.
+  let MODEL_TOKENS = [];
+  const GRADE_SUFFIX_RE = /-(W|WP|A|B|C|Z|DX)\s*$/i;
+  // Regex to match tokens that are solely a grade (used for validation)
+  const PURE_GRADE_RE = /^(?:W|WP|A|B|C|Z|DX)$/i;
+
+  // ===== Error helpers for model tokens =====
+  function showTokenError(msg){ const el = document.getElementById('tokenError'); if(!el) return; el.textContent = msg; el.style.display = msg? 'block':'none'; }
+  function clearTokenError(){ showTokenError(''); }
+
+  // Try boot from embedded snapshot; if so, remove upload UI (snapshot should be filter-only)
+  (function bootFromSnapshot(){ try{ const node=$('#dataset'); if(node && node.textContent?.trim().length){ const json=JSON.parse(node.textContent); DATA=json; populateFilters(true); renderTable(); status(`Loaded snapshot: ${DATA.meta?.name||'dataset'} (rows: ${fmtInt(DATA.rows.length)})`); $('#btnExportXlsx').disabled=false; $('#btnExportView').disabled=false; $('#btnExportHTML').disabled=false; const up=$('#uploadRow'); if(up) up.remove(); } else { $('#regionMapBox').value = DEFAULT_REGION_MAP_TEXT; } }catch(e){ console.warn('Snapshot load failed',e); $('#regionMapBox').value = DEFAULT_REGION_MAP_TEXT; } })();
+
+  // Read file (CSV/XLSX)
+  async function parseFile(file){ const buf=await file.arrayBuffer(); const wb=XLSX.read(buf,{type:'array'}); const ws=wb.Sheets[wb.SheetNames[0]]; return XLSX.utils.sheet_to_json(ws,{defval:'',raw:false}); }
+
+  function deriveCountryFromMapping(row, colCountry, colLocation){
+    let c = (colCountry? String(row[colCountry]||'').trim() : '');
+    if(!c){
+      const loc = String(colLocation? row[colLocation]||'' : '').trim();
+      if(loc && DATA.regionMap[loc] ) c = DATA.regionMap[loc];
+      else if(loc.includes('_')) c = loc.split('_',1)[0];
+      else if(/^[A-Za-z]{2}/.test(loc)) c = loc.slice(0,2);
+    }
+    c = (c||'Unknown').toUpperCase();
+    if(c==='DE') c='IE'; if(c==='SCHJP') c='JP';
+    return c;
+  }
+
+  function processRaw(rows){
+    if(!rows?.length) throw new Error('No rows to process');
+    DATA.raw = rows.slice();
+    const cols = Object.keys(rows[0]||{});
+    const colModel = pickCol(cols, ['Model Grade','Model','SKU','Short SKU','Product Name']);
+    const colGrade = pickCol(cols, ['Grade','Model Grade Only','Condition']);
+    const colColor = pickCol(cols, ['Color','Colour']);
+    const colQty   = pickCol(cols, ['Qty_Available','Qty','Quantity','Available Qty','Qty Available']);
+    const colQtyPre = pickCol(cols, ['Qty_Preorder','Qty Preorder','Preorder Qty','QtyPreorder','Qty Pre','Preorder']);
+    const colCountry = pickCol(cols, ['Country','Region']);
+    const colLocation = pickCol(cols, ['Location','Location Code','Warehouse','Warehouse Location','Location_Code']);
+    const colFamily = pickCol(cols, ['Product Family','Family','Category']);
+    const colCategory = pickCol(cols, ['Category','Product Category','Family','Product Family']);
+    const colCapacity = pickCol(cols, ['Capacity','Storage','Storage Capacity','Memory','ROM','Capacity (GB)']);
+    // Detect variant column for SIM classification
+    const colVariant = pickCol(cols, ['Variant','Variant Code','VariantId','VariantID','Variant Model','Variant Number']);
+    const colSku = pickCol(cols, ['SKU','Sku','Short SKU','Item Code','SKU Code']);
+    const colNetwork = pickCol(cols, ['Network','Network Code','Model Network','Network Carrier','Carrier']);
+
+    const out=[];
+    // Prepare a map to aggregate quantities; also store details for order exports
+    const map=new Map();
+    for(const r of rows){
+      // iPhone-only (keep accessories out implicitly)
+      if(!isIphone(r,colFamily,colModel)) continue;
+      const qtyAvail = normalizeQty(r[colQty]);
+      const qtyPre = colQtyPre ? normalizeQty(r[colQtyPre]) : 0;
+      // Skip row if no quantity available or preorder combined quantity
+      if(qtyAvail + qtyPre <= 0) continue;
+      const country = deriveCountryFromMapping(r,colCountry,colLocation);
+      const color = (colColor? String(r[colColor]||'').trim(): '') || 'Unknown';
+      const header = buildHeader(r,colModel,colGrade,colCapacity);
+      const category = (colCategory? String(r[colCategory]||'').trim(): '') || 'Unknown';
+      // Determine SIM type based on variant column: use E Sim if variant mentions United States
+      // except for iPhone SE 3rd Gen models which should remain P Sim.
+      let sim = 'P Sim';
+      if(colVariant){
+        const v = String(r[colVariant]||'');
+        // Determine if the model is iPhone SE 3rd Gen using the model column if available
+        let modelName = '';
+        if(colModel) modelName = String(r[colModel]||'').toLowerCase();
+        const isSe3 = /iphone\s*se\s*(3|3rd|third)/i.test(modelName);
+        if(/United\s*States/i.test(v) && !isSe3){
+          sim = 'E Sim';
+        }
+      }
+      // Capture SKU and location code
+      const sku = colSku ? String(r[colSku]||'').trim() : '';
+      const loc = colLocation ? String(r[colLocation]||'').trim() : '';
+      // Capture network for locked filtering
+      const network = colNetwork ? String(r[colNetwork]||'').trim() : '';
+      // Capture variant string for validation and export
+      const variant = colVariant ? String(r[colVariant]||'').trim() : '';
+      // Record a row for potential further use
+      out.push({Country:country, Sim:sim, Header:header, Color:color, Category:category, QtyAvail:qtyAvail, QtyPre:qtyPre, Sku:sku, Loc:loc, Network:network, Variant:variant});
+      // Aggregate by Country, Sim, Header, Color, Category
+      const key=country+'\u0001'+sim+'\u0001'+header+'\u0001'+color+'\u0001'+category;
+      if(!map.has(key)){
+        map.set(key,{Country:country, Sim:sim, Header:header, Color:color, Category:category, QtyAvail:qtyAvail, QtyPre:qtyPre, Sku:sku, Loc:loc, Network:network, MaxQtyAvail:qtyAvail, rows:[{Sku:sku, Loc:loc, QtyAvail:qtyAvail, QtyPre:qtyPre, Variant:variant, Network:network}]});
+      } else {
+        const agg=map.get(key);
+        agg.QtyAvail += qtyAvail;
+        agg.QtyPre += qtyPre;
+        // Update representative SKU/Loc if this row has more available quantity
+        if(qtyAvail > agg.MaxQtyAvail){
+          agg.Sku = sku;
+          agg.Loc = loc;
+          agg.Network = network;
+          agg.MaxQtyAvail = qtyAvail;
+        }
+        // Append underlying row details
+        agg.rows.push({Sku:sku, Loc:loc, QtyAvail:qtyAvail, QtyPre:qtyPre, Variant:variant, Network:network});
+      }
+    }
+    // Build aggregated array
+    const agg=[];
+    AGG_MAP={};
+    for(const [key,val] of map){
+      // Total quantity includes preorder; we keep both separately
+      const totalQty = val.QtyAvail + val.QtyPre;
+      const row={Country:val.Country, Sim:val.Sim, Header:val.Header, Color:val.Color, Category:val.Category, QtyAvail:val.QtyAvail, QtyPre:val.QtyPre, Qty:totalQty, Sku:val.Sku, Loc:val.Loc, Network:val.Network, Key:key};
+      agg.push(row);
+      // Store details for export: include list of underlying rows
+      AGG_MAP[key]={
+        rows: val.rows.slice(),
+        Color: val.Color,
+        Header: val.Header,
+        Country: val.Country,
+        Sim: val.Sim,
+        Category: val.Category,
+        QtyAvail: val.QtyAvail,
+        QtyPre: val.QtyPre
+      };
+    }
+    // Sort by country, sim, header, colour, category for stable order
+    agg.sort((a,b)=> a.Country.localeCompare(b.Country)
+                    || a.Sim.localeCompare(b.Sim)
+                    || a.Header.localeCompare(b.Header)
+                    || a.Color.localeCompare(b.Color)
+                    || a.Category.localeCompare(b.Category));
+    // Build meta lists for filters
+    const countries=[...new Set(agg.map(r=>r.Country))].sort();
+    const sims=[...new Set(agg.map(r=>r.Sim))].sort();
+    const grades=[...new Set(agg.map(r=> (r.Header.split('-').slice(-1)[0]||'').toUpperCase() ))].filter(Boolean).sort();
+    const categories=[...new Set(agg.map(r=> r.Category))].sort();
+    DATA.rows=agg;
+    DATA.cols=['Country','Sim','Header','Color','Qty','Category','Sku','Loc','QtyAvail','QtyPre','Network','Key'];
+    DATA.mapping={colModel,colGrade,colColor,colQty,colQtyPre,colCountry,colLocation,colFamily,colCategory,colCapacity,colSku,colNetwork,colVariant};
+    DATA.meta={ name:($('#file')?.files?.[0]?.name)||DATA.meta?.name||'dataset', hash:String(agg.length)+'-'+String(Date.now()), ts:Date.now(), countries, grades, categories, sims };
+    populateFilters(false);
+  }
+
+  function populateFilters(isSnapshot){
+    $('#regionMapBox').value = $('#regionMapBox').value || DEFAULT_REGION_MAP_TEXT;
+    // Regions
+    const countries = DATA.meta.countries?.length? DATA.meta.countries : [...new Set(DATA.rows.map(r=>r.Country))].sort();
+    buildRegionChips(countries);
+    // Grades
+    const grades = DATA.meta.grades?.length? DATA.meta.grades : [...new Set(DATA.rows.map(r=> (r.Header.split('-').slice(-1)[0]||'').toUpperCase()))].filter(Boolean).sort();
+    buildGradeChips(grades);
+    // Categories
+    const categories = DATA.meta.categories?.length? DATA.meta.categories : [...new Set(DATA.rows.map(r=> r.Category))].sort();
+    buildCategoryChips(categories);
+    // Sims
+    const sims = DATA.meta.sims?.length? DATA.meta.sims : [...new Set(DATA.rows.map(r=> r.Sim))].sort();
+    buildSimChips(sims);
+    // Preorder and locked filters (binary chips)
+    buildPreorderChips();
+    buildLockedChips();
+    // Suggestions for model tokens
+    buildModelSuggestions();
+  }
+
+  function reprocessWithMapping(){ if(!DATA.raw?.length) return; processRaw(DATA.raw); renderTable(); }
+
+  // ===== Chips (Region / Grade / Category / SIM) =====
+  // The selected sets are declared earlier with their own defaults.
+
+  function makeChips(boxSel, values, selectedSet, defaults=[]) {
+    const box=$(boxSel); box.innerHTML='';
+    const all=document.createElement('div'); all.className='chipbtn' + (selectedSet.size===0? ' active':''); all.textContent='All'; all.dataset.val=''; box.appendChild(all);
+    values.forEach(v=>{ const el=document.createElement('div'); el.className='chipbtn' + (selectedSet.has(v)? ' active':''); el.textContent=v; el.dataset.val=v; box.appendChild(el); });
+    box.onclick=(e)=>{
+      const btn=e.target.closest('.chipbtn'); if(!btn) return; const val=btn.dataset.val;
+      if(val===''){ selectedSet.clear(); } else { if(selectedSet.has(val)) selectedSet.delete(val); else selectedSet.add(val); }
+      updateChipHighlights(boxSel, selectedSet);
+      renderTable();
+    };
+    // Apply defaults if provided and no current selection
+    if(selectedSet.size===0 && defaults.length){ defaults.forEach(d=>{ if(values.some(v=>v.toLowerCase()===d.toLowerCase())) selectedSet.add(values.find(v=>v.toLowerCase()===d.toLowerCase())); }); updateChipHighlights(boxSel, selectedSet); }
+  }
+  function updateChipHighlights(boxSel, set){ const chips=$$(boxSel+' .chipbtn'); const none=set.size===0; chips.forEach(ch=>{ const val=ch.dataset.val; if(val==='') ch.classList.toggle('active', none); else ch.classList.toggle('active', set.has(val)); }); }
+
+  function buildRegionChips(countries){ makeChips('#regionChips', countries, SELECTED_COUNTRIES); }
+  function buildGradeChips(grades){ makeChips('#gradeChips', grades, SELECTED_GRADES); }
+  function buildCategoryChips(categories){
+    // Default to Smartphones if available
+    const defaults = categories.some(c=>c.toLowerCase()==='smartphones')? ['Smartphones'] : [];
+    makeChips('#categoryChips', categories, SELECTED_CATEGORIES, defaults);
+  }
+
+  // Build SIM chips
+  function buildSimChips(sims){
+    // SIM chips have no defaults; all selected means no filtering
+    makeChips('#simChips', sims, SELECTED_SIMS);
+  }
+
+  // Build preorder chips (binary include/exclude). When exclude (default), preorder quantities are not counted.
+  function buildPreorderChips(){
+    const box=$('#preorderChips'); if(!box) return;
+    box.innerHTML='';
+    const include=document.createElement('div'); include.className='chipbtn' + (PREORDER_INCLUDE? ' active':''); include.textContent='Include'; include.dataset.val='include';
+    const exclude=document.createElement('div'); exclude.className='chipbtn' + (!PREORDER_INCLUDE? ' active':''); exclude.textContent='Exclude'; exclude.dataset.val='exclude';
+    box.appendChild(include); box.appendChild(exclude);
+    box.onclick=(e)=>{
+      const btn=e.target.closest('.chipbtn'); if(!btn) return;
+      PREORDER_INCLUDE = (btn.dataset.val==='include');
+      buildPreorderChips();
+      renderTable();
+    };
+  }
+
+  // Build locked unit chips (binary include/exclude). When exclude (default), certain networks are filtered out.
+  function buildLockedChips(){
+    const box=$('#lockedChips'); if(!box) return;
+    box.innerHTML='';
+    const include=document.createElement('div'); include.className='chipbtn' + (!LOCKED_EXCLUDE? ' active':''); include.textContent='Include'; include.dataset.val='include';
+    const exclude=document.createElement('div'); exclude.className='chipbtn' + (LOCKED_EXCLUDE? ' active':''); exclude.textContent='Exclude'; exclude.dataset.val='exclude';
+    box.appendChild(include); box.appendChild(exclude);
+    box.onclick=(e)=>{
+      const btn=e.target.closest('.chipbtn'); if(!btn) return;
+      LOCKED_EXCLUDE = (btn.dataset.val==='exclude');
+      buildLockedChips();
+      renderTable();
+    };
+  }
+  // ===== Tokenized model OR-filter (gradeless) =====
+  // Reset MODEL_TOKENS to an empty array before starting a new parse. The variables
+  // MODEL_TOKENS, GRADE_SUFFIX_RE and PURE_GRADE_RE are declared near the top
+  // of the script to avoid temporal dead‑zone errors during snapshot initialisation.
+  MODEL_TOKENS = [];
+  function sanitizeToken(val){
+    let v = (val||'').trim();
+    v = v.replace(GRADE_SUFFIX_RE,''); // strip trailing -GRADE
+    v = v.replace(/\s{2,}/g,' ');
+    return v;
+  }
+  function addToken(val){
+    const clean = sanitizeToken(val);
+    // Do not allow empty or too-short tokens
+    const plain = clean.replace(/[^a-z0-9 ]/gi,'').trim();
+    if(!plain || plain.length < 2){ showTokenError('Enter a more specific model.'); return; }
+    // Do not allow pure grade tokens (e.g. W, WP)
+    if(PURE_GRADE_RE.test(plain)){ showTokenError('Model token cannot be just a grade.'); return; }
+    const key = clean.toLowerCase();
+    // Validate against suggestions if available
+    if(MODEL_SUGG_LOWER.length){
+      const match = MODEL_SUGG_LOWER.some(s => s.includes(key));
+      if(!match){ showTokenError('No matching model — pick from suggestions or type more.'); return; }
+    }
+    if(!MODEL_TOKENS.includes(key)){
+      MODEL_TOKENS.push(key);
+      renderTokens(); renderTable();
+    }
+    clearTokenError();
+  }
+  function removeToken(val){
+    MODEL_TOKENS = MODEL_TOKENS.filter(t=>t!==val.toLowerCase());
+    renderTokens(); renderTable();
+    clearTokenError();
+  }
+  function renderTokens(){ const wrap=$('#tokenWrap'); wrap.innerHTML=''; MODEL_TOKENS.forEach(t=>{ const el=document.createElement('div'); el.className='token'; el.innerHTML=`<span>${t}</span><span class="x" title="Remove">✕</span>`; el.querySelector('.x').addEventListener('click',()=>removeToken(t)); wrap.appendChild(el); }); }
+  // Reset MODEL_SUGG before rebuilding suggestions. Declaration of MODEL_SUGG is at the top of the script.
+  MODEL_SUGG = [];
+  function buildModelSuggestions(){
+    const seen = new Map();
+    // Build mapping of lower-case base model -> original case base model
+    for(const r of DATA.rows){
+      const base = r.Header.replace(GRADE_SUFFIX_RE,'').trim();
+      const lower = base.toLowerCase();
+      if(base && !seen.has(lower)) seen.set(lower, base);
+    }
+    MODEL_SUGG = Array.from(seen.values()).sort((a,b)=> a.localeCompare(b));
+    MODEL_SUGG_LOWER = MODEL_SUGG.map(s => s.toLowerCase());
+  }
+  (function wireModelInput(){
+    const input=$('#modelInput'); const list=$('#sugglist');
+    function openList(items){
+      list.innerHTML='';
+      items.slice(0,150).forEach(s=>{
+        const it=document.createElement('div'); it.className='suggitem'; it.textContent=s;
+        it.addEventListener('click',()=>{
+          addToken(s);
+          // Only clear the input if no error is shown
+          const err = document.getElementById('tokenError');
+          if(!err || err.style.display==='none'){
+            input.value=''; list.classList.remove('open');
+          }
+        });
+        list.appendChild(it);
+      });
+      if(items.length) list.classList.add('open'); else list.classList.remove('open');
+    }
+    input.addEventListener('input',()=>{
+      const q=input.value.trim().toLowerCase();
+      clearTokenError();
+      if(!q){ list.classList.remove('open'); return; }
+      openList(MODEL_SUGG.filter(s=> s.toLowerCase().includes(q)));
+    });
+    input.addEventListener('keydown',(e)=>{
+      if(e.key==='Enter' || e.key===','){
+        e.preventDefault();
+        const v=input.value.trim();
+        if(v){
+          addToken(v);
+          const err = document.getElementById('tokenError');
+          if(!err || err.style.display==='none'){
+            input.value=''; list.classList.remove('open');
+          }
+        }
+      }
+    });
+    document.addEventListener('click',(e)=>{ if(!e.target.closest('.sugg')) list.classList.remove('open'); });
+  })();
+
+  function getActiveFilters(){
+    const q=$('#q').value.trim().toLowerCase();
+    const selectedCountries = Array.from(SELECTED_COUNTRIES);
+    const selectedGrades = Array.from(SELECTED_GRADES);
+    const selectedCategories = Array.from(SELECTED_CATEGORIES);
+    const selectedSims = Array.from(SELECTED_SIMS);
+    return {q,selectedCountries,selectedGrades,selectedCategories,selectedSims,modelTokens:MODEL_TOKENS.slice()};
+  }
+
+  function applyFilters(rows){
+    const {q,selectedCountries,selectedGrades,selectedCategories,selectedSims,modelTokens}=getActiveFilters();
+    return rows
+      .filter(r=>{
+        // Apply batch filter first: if a batch set is defined, exclude rows not matching any (Country, Header) pair
+        if(BATCH_SET && BATCH_SET.size>0){
+          const pairKey = String(r.Country||'').toUpperCase() + '\t' + String(r.Header||'').toLowerCase();
+          if(!BATCH_SET.has(pairKey)) return false;
+        }
+        // Region/country filter
+        if(selectedCountries.length && !selectedCountries.includes(r.Country)) return false;
+        // Grade filter
+        if(selectedGrades.length){ const g=(r.Header.split('-').slice(-1)[0]||'').toUpperCase(); if(!selectedGrades.includes(g)) return false; }
+        // Category filter
+        if(selectedCategories.length && !selectedCategories.includes(r.Category)) return false;
+        // SIM filter
+        if(selectedSims.length && !selectedSims.includes(r.Sim)) return false;
+        // Locked network filter
+        if(LOCKED_EXCLUDE && isDontIncludeNetwork(r.Network)) return false;
+        // Model tokens filter (base model, ignoring grade)
+        if(modelTokens.length){ const base=r.Header.replace(GRADE_SUFFIX_RE,'').toLowerCase(); if(!modelTokens.some(t=>base.includes(t))) return false; }
+        // Text search q over header or colour
+        if(q){ const h=r.Header.toLowerCase(); const c=r.Color.toLowerCase(); if(!(h.includes(q) || c.includes(q))) return false; }
+        return true;
+      })
+      .map(r=>{
+        // Compute effective quantity based on preorder include/exclude
+        const qtyEff = r.QtyAvail + (PREORDER_INCLUDE? r.QtyPre : 0);
+        // Copy properties into a new object to avoid mutating original
+        return Object.assign({}, r, { Qty: qtyEff });
+      })
+      .filter(r=> r.Qty > 0);
+  }
+
+  function renderTable(){
+    const rows = applyFilters(DATA.rows);
+    // Update count of rows (aggregated rows) shown
+    $('#rowsCount').textContent = rows.length.toLocaleString();
+    // Group by country and then header
+    const byCountry = new Map();
+    for(const r of rows){
+      if(!byCountry.has(r.Country)) byCountry.set(r.Country, new Map());
+      const m = byCountry.get(r.Country);
+      if(!m.has(r.Header)) m.set(r.Header, []);
+      m.get(r.Header).push(r);
+    }
+    let html = '';
+    const countries = [...byCountry.keys()].sort();
+    for(const country of countries){
+      html += `<div class="section"><div class="chip">Country: <strong style="margin-left:6px">${country}</strong></div>`;
+      html += `<table><thead><tr>`;
+      html += `<th>Item</th><th class="right">Qty</th><th class="right">Order Qty</th><th class="right">Offer</th><th></th>`;
+      html += `</tr></thead><tbody>`;
+      let grand = 0;
+      const headers = [...byCountry.get(country).keys()].sort();
+      for(const hdr of headers){
+        const rowsForHdr = byCountry.get(country).get(hdr);
+        // Compute subtotal across colours
+        let subtotal = 0;
+        for(const row of rowsForHdr){ subtotal += row.Qty; }
+        grand += subtotal;
+        // Determine if this model is expanded (for summary mode)
+        const modelKey = country + '\u0001' + hdr;
+        const expandedModel = !!EXPANDED_MODELS[modelKey];
+        // Determine aggregated offer across all colours: if all offers equal
+        let aggregatedOffer = '';
+        {
+          const offers = [];
+          for(const row of rowsForHdr){
+            const ent = ORDER_ENTRIES[row.Key];
+            if(ent && ent.offer != null && String(ent.offer).trim() !== '') offers.push(String(ent.offer).trim());
+          }
+          if(offers.length > 0 && offers.every(v => v === offers[0])) aggregatedOffer = offers[0];
+        }
+        // Build model header row with expander and header offer
+        const modelArrow = (!SHOW_SUMMARY_ONLY ? '' : (expandedModel ? '▼' : '▶'));
+        html += `<tr>`;
+        html += `<td>`;
+        // Expander: only show when summary is enabled
+        if(SHOW_SUMMARY_ONLY){
+          html += `<span class="expander" data-type="model" data-country="${country}" data-hdr="${hdr}" style="cursor:pointer;margin-right:4px">${modelArrow}</span>`;
+        }
+        html += `<strong>${hdr}</strong></td>`;
+        html += `<td class="right"><strong>${fmtInt(subtotal)}</strong></td>`;
+        // Order qty for model header: leave blank; aggregated qty not editable
+        html += `<td class="right"></td>`;
+        // Offer input on header applies to all colours under this model
+        html += `<td class="right"><input type="number" class="orderOfferHeader" data-country="${country}" data-hdr="${hdr}" step="0.01" value="${aggregatedOffer}" style="width:80px"></td>`;
+        html += `<td class="right"><button type="button" class="takeAllHeader" data-country="${country}" data-hdr="${hdr}" style="padding:4px 8px;font-size:12px">All</button></td>`;
+        html += `</tr>`;
+        // Determine whether to render colour rows
+        const showColours = !SHOW_SUMMARY_ONLY || expandedModel;
+        if(showColours){
+          // Sort colours alphabetically
+          const sortedRows = rowsForHdr.slice().sort((a,b)=> a.Color.localeCompare(b.Color));
+          for(const row of sortedRows){
+            const key = row.Key;
+            // Determine if this colour row is expanded
+            const expandedColour = !!EXPANDED_COLORS[key];
+            const arrow = expandedColour ? '▼' : '▶';
+            // Determine order quantity and offer for this colour row
+            const ent = ORDER_ENTRIES[key] || {};
+            const orderQty = (ent.qty != null && ent.qty !== 0) ? ent.qty : '';
+            const offerVal = (ent.offer != null && String(ent.offer).trim() !== '') ? ent.offer : '';
+            html += `<tr>`;
+            html += `<td class="indent">`;
+            // Expander for colour row
+            html += `<span class="expander" data-type="color" data-key="${key}" style="cursor:pointer;margin-right:4px">${arrow}</span>`;
+            html += `${row.Color}</td>`;
+            html += `<td class="right">${fmtInt(row.Qty)}</td>`;
+            html += `<td class="right"><input type="number" class="orderQty" data-key="${key}" min="0" max="${row.Qty}" value="${orderQty}" style="width:80px"></td>`;
+            html += `<td class="right"><input type="number" class="orderOffer" data-key="${key}" min="0" step="0.01" value="${offerVal}" style="width:80px"></td>`;
+            html += `<td class="right"><button type="button" class="takeAll" data-key="${key}" style="padding:4px 8px;font-size:12px">All</button></td>`;
+            html += `</tr>`;
+            // If colour row is expanded, render per‑warehouse rows
+            if(expandedColour){
+              const agg = AGG_MAP[key];
+              if(agg && agg.rows && agg.rows.length){
+                for(let idx=0; idx < agg.rows.length; idx++){
+                  const it = agg.rows[idx];
+                  const qEff = it.QtyAvail + (PREORDER_INCLUDE ? it.QtyPre : 0);
+                  if(qEff <= 0) continue;
+                  const subKey = key + '\u0002' + idx;
+                  const subEnt = ORDER_ENTRIES[subKey] || {};
+                  const subQty = (subEnt.qty != null && subEnt.qty !== 0) ? subEnt.qty : '';
+                  html += `<tr>`;
+                  html += `<td class="indent indent2">${it.Loc || it.Sku || ''}</td>`;
+                  html += `<td class="right">${fmtInt(qEff)}</td>`;
+                  html += `<td class="right"><input type="number" class="orderQtyWarehouse" data-key="${key}" data-idx="${idx}" min="0" max="${qEff}" value="${subQty}" style="width:80px"></td>`;
+                  // No offer input for per‑warehouse rows
+                  html += `<td class="right"></td>`;
+                  html += `<td></td>`;
+                  html += `</tr>`;
+                }
+              }
+            }
+          }
+          // Spacer row between models
+          html += `<tr><td colspan="5"></td></tr>`;
+        }
+      }
+      // Total row
+      html += `<tr class="total"><td>Total</td><td class="right">${fmtInt(grand)}</td><td></td><td></td><td></td></tr>`;
+      html += `</tbody></table></div>`;
+    }
+    $('#table').innerHTML = html || '<div class="muted">No rows after filters.</div>';
+    // Attach event handlers for order inputs, offers, take all buttons, and expanders after rendering
+    attachOrderHandlers();
+    attachExpanders();
+  }
+
+  // Attach event handlers for order quantity/offer inputs and take‑all buttons
+  function attachOrderHandlers(){
+    // Remove stale ORDER_ENTRIES keys (aggregated and per‑warehouse) that no longer exist in AGG_MAP
+    for(const k in ORDER_ENTRIES){
+      // If key is per‑warehouse (contains delimiter \u0002), extract aggregated part
+      const parts = k.split('\u0002');
+      const aggKey = parts[0];
+      if(!AGG_MAP[aggKey]) delete ORDER_ENTRIES[k];
+    }
+    // Attach handlers for aggregated colour order quantity inputs
+    document.querySelectorAll('input.orderQty').forEach(inp => {
+      inp.oninput = (e) => {
+        const key = e.target.dataset.key;
+        let qty = parseInt(e.target.value, 10);
+        if(!isFinite(qty) || qty < 0) qty = 0;
+        if(!ORDER_ENTRIES[key]) ORDER_ENTRIES[key] = {qty:0, offer:''};
+        ORDER_ENTRIES[key].qty = qty;
+        // When setting aggregated qty, clear any per‑warehouse entries for this key
+        const agg = AGG_MAP[key];
+        if(agg && agg.rows){
+          for(let i=0; i<agg.rows.length; i++){
+            const wkey = key + '\u0002' + i;
+            if(ORDER_ENTRIES[wkey]) delete ORDER_ENTRIES[wkey];
+          }
+        }
+        updateOrderButtons();
+      };
+    });
+    // Attach handlers for aggregated colour offer inputs
+    document.querySelectorAll('input.orderOffer').forEach(inp => {
+      inp.oninput = (e) => {
+        const key = e.target.dataset.key;
+        const offer = e.target.value;
+        if(!ORDER_ENTRIES[key]) ORDER_ENTRIES[key] = {qty:0, offer:''};
+        ORDER_ENTRIES[key].offer = offer;
+        // Propagate offer to any per‑warehouse entries for this key
+        const agg = AGG_MAP[key];
+        if(agg && agg.rows){
+          for(let i=0; i<agg.rows.length; i++){
+            const wkey = key + '\u0002' + i;
+            if(!ORDER_ENTRIES[wkey]) ORDER_ENTRIES[wkey] = {qty:0, offer:''};
+            ORDER_ENTRIES[wkey].offer = offer;
+          }
+        }
+        updateOrderButtons();
+      };
+    });
+    // Attach handlers for per‑warehouse quantity inputs
+    document.querySelectorAll('input.orderQtyWarehouse').forEach(inp => {
+      inp.oninput = (e) => {
+        const key = e.target.dataset.key;
+        const idx = e.target.dataset.idx;
+        let qty = parseInt(e.target.value, 10);
+        if(!isFinite(qty) || qty < 0) qty = 0;
+        const subKey = key + '\u0002' + idx;
+        if(!ORDER_ENTRIES[subKey]) ORDER_ENTRIES[subKey] = {qty:0, offer:''};
+        ORDER_ENTRIES[subKey].qty = qty;
+        // Use aggregated offer for this subKey if available
+        const parent = ORDER_ENTRIES[key];
+        if(parent && parent.offer != null){ ORDER_ENTRIES[subKey].offer = parent.offer; }
+        // When setting per‑warehouse qty, clear aggregated qty for this key
+        if(ORDER_ENTRIES[key]) ORDER_ENTRIES[key].qty = 0;
+        updateOrderButtons();
+      };
+    });
+    // Attach handlers for aggregated colour 'All' buttons
+    document.querySelectorAll('button.takeAll').forEach(btn => {
+      btn.onclick = (e) => {
+        const key = e.target.dataset.key;
+        const agg = AGG_MAP[key]; if(!agg) return;
+        const qtyEff = agg.QtyAvail + (PREORDER_INCLUDE ? agg.QtyPre : 0);
+        // Determine price from corresponding offer input for this key
+        const offerInput = document.querySelector(`input.orderOffer[data-key="${key}"]`);
+        const priceVal = offerInput ? offerInput.value : '';
+        if(!ORDER_ENTRIES[key]) ORDER_ENTRIES[key] = {qty:0, offer:''};
+        ORDER_ENTRIES[key].qty = qtyEff;
+        ORDER_ENTRIES[key].offer = priceVal;
+        // Clear any per‑warehouse entries
+        if(agg.rows){
+          for(let i=0; i<agg.rows.length; i++){
+            const wkey = key + '\u0002' + i;
+            if(ORDER_ENTRIES[wkey]) delete ORDER_ENTRIES[wkey];
+          }
+        }
+        updateOrderButtons();
+        // Re-render to reflect updated values
+        setTimeout(()=>{ renderTable(); }, 0);
+      };
+    });
+    // Attach handlers for header offer inputs (model‑grade level) – propagate to all colours and warehouses
+    document.querySelectorAll('input.orderOfferHeader').forEach(inp => {
+      inp.oninput = (e) => {
+        const country = e.target.dataset.country;
+        const hdr = e.target.dataset.hdr;
+        const val = e.target.value;
+        for(const key in AGG_MAP){
+          const agg = AGG_MAP[key];
+          if(agg && agg.Country === country && agg.Header === hdr){
+            if(!ORDER_ENTRIES[key]) ORDER_ENTRIES[key] = {qty:0, offer:''};
+            ORDER_ENTRIES[key].offer = val;
+            // Propagate to warehouse entries under this key
+            if(agg.rows){
+              for(let i=0; i<agg.rows.length; i++){
+                const wkey = key + '\u0002' + i;
+                if(!ORDER_ENTRIES[wkey]) ORDER_ENTRIES[wkey] = {qty:0, offer:''};
+                ORDER_ENTRIES[wkey].offer = val;
+              }
+            }
+          }
+        }
+        setTimeout(() => { renderTable(); }, 0);
+      };
+    });
+    // Attach handlers for header 'All' buttons – set all colours to max and propagate offer
+    document.querySelectorAll('button.takeAllHeader').forEach(btn => {
+      btn.onclick = (e) => {
+        const country = e.target.dataset.country;
+        const hdr = e.target.dataset.hdr;
+        // Determine offer from header input
+        const priceInput = document.querySelector(`input.orderOfferHeader[data-country="${country}"][data-hdr="${hdr}"]`);
+        const priceVal = priceInput ? priceInput.value : '';
+        for(const key in AGG_MAP){
+          const agg = AGG_MAP[key];
+          if(agg && agg.Country === country && agg.Header === hdr){
+            const qtyEff = agg.QtyAvail + (PREORDER_INCLUDE ? agg.QtyPre : 0);
+            if(!ORDER_ENTRIES[key]) ORDER_ENTRIES[key] = {qty:0, offer:''};
+            ORDER_ENTRIES[key].qty = qtyEff;
+            ORDER_ENTRIES[key].offer = priceVal;
+            // Clear per‑warehouse entries
+            if(agg.rows){
+              for(let i=0; i<agg.rows.length; i++){
+                const wkey = key + '\u0002' + i;
+                if(ORDER_ENTRIES[wkey]) delete ORDER_ENTRIES[wkey];
+              }
+            }
+          }
+        }
+        setTimeout(() => { renderTable(); }, 0);
+      };
+    });
+    // Finally update buttons state
+    updateOrderButtons();
+  }
+
+  // Attach expand/collapse handlers for model and colour rows
+  function attachExpanders(){
+    document.querySelectorAll('.expander').forEach(exp => {
+      exp.onclick = (e) => {
+        const type = e.target.dataset.type;
+        if(type === 'model'){
+          const country = e.target.dataset.country;
+          const hdr = e.target.dataset.hdr;
+          const key = country + '\u0001' + hdr;
+          EXPANDED_MODELS[key] = !EXPANDED_MODELS[key];
+          // When collapsing a model, also collapse all colours under it
+          if(!EXPANDED_MODELS[key]){
+            // Reset colour expanded states for this model
+            for(const k in EXPANDED_COLORS){
+              if(k.startsWith(country + '\u0001' + hdr + '\u0001')){
+                delete EXPANDED_COLORS[k];
+              }
+            }
+          }
+        } else if(type === 'color'){
+          const key = e.target.dataset.key;
+          EXPANDED_COLORS[key] = !EXPANDED_COLORS[key];
+        }
+        renderTable();
+      };
+    });
+  }
+
+  function updateOrderButtons(){
+    const btnOrder = document.getElementById('btnExportOrderCsv');
+    const btnVal   = document.getElementById('btnExportValidationCsv');
+    if(!btnOrder || !btnVal){ return; }
+    const hasOrders = Object.values(ORDER_ENTRIES).some(ent => ent && ent.qty && ent.qty > 0);
+    btnOrder.disabled = !hasOrders;
+    btnVal.disabled   = !hasOrders;
+  }
+
+  function exportOrderCsv(){
+    const lines=[];
+    lines.push(['SKU','Location Code','Quantity','Offer']);
+    for(const key in ORDER_ENTRIES){
+      const ent = ORDER_ENTRIES[key];
+      if(!ent || !ent.qty || ent.qty <= 0) continue;
+      let qty = parseInt(ent.qty, 10);
+      if(!qty || qty <= 0) continue;
+      const offer = (ent.offer != null && String(ent.offer).trim() !== '') ? ent.offer : '';
+      // If this key is a per‑warehouse entry
+      if(key.includes('\u0002')){
+        const parts = key.split('\u0002');
+        const aggKey = parts[0];
+        const idx = parseInt(parts[1], 10);
+        const agg = AGG_MAP[aggKey];
+        if(agg && agg.rows && agg.rows[idx]){
+          const it = agg.rows[idx];
+          const price = offer || (ORDER_ENTRIES[aggKey] && ORDER_ENTRIES[aggKey].offer ? ORDER_ENTRIES[aggKey].offer : '');
+          lines.push([it.Sku || '', it.Loc || '', qty, price]);
+        }
+        continue;
+      }
+      // Otherwise aggregated row: allocate across underlying rows
+      const agg = AGG_MAP[key];
+      if(!agg || !agg.rows) continue;
+      let qtyNeeded = qty;
+      const price = offer;
+      for(const it of agg.rows){
+        const qEff = it.QtyAvail + (PREORDER_INCLUDE ? it.QtyPre : 0);
+        if(qEff <= 0) continue;
+        const qTake = qtyNeeded >= qEff ? qEff : qtyNeeded;
+        if(qTake > 0){
+          lines.push([it.Sku || '', it.Loc || '', qTake, price]);
+          qtyNeeded -= qTake;
+        }
+        if(qtyNeeded <= 0) break;
+      }
+      if(qtyNeeded > 0){
+        const first = agg.rows[0];
+        lines.push([first.Sku || '', first.Loc || '', qtyNeeded, price]);
+      }
+    }
+    if(lines.length <= 1){ alert('No order entries.'); return; }
+    const csv = lines.map(l => l.map(v => String(v).replace(/"/g,'""')).map(v => `"${v}"`).join(',')).join('\r\n');
+    const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
+    saveAs(blob, 'order.csv');
+  }
+
+  function exportValidationCsv(){
+    const lines=[];
+    // Include Variant column in validation CSV
+    lines.push(['SKU','Location Code','Color','Model Grade','Variant','Quantity','Offer']);
+    for(const key in ORDER_ENTRIES){
+      const ent = ORDER_ENTRIES[key];
+      if(!ent || !ent.qty || ent.qty <= 0) continue;
+      let qty = parseInt(ent.qty, 10);
+      if(!qty || qty <= 0) continue;
+      const offer = (ent.offer != null && String(ent.offer).trim() !== '') ? ent.offer : '';
+      // Per‑warehouse key
+      if(key.includes('\u0002')){
+        const parts = key.split('\u0002');
+        const aggKey = parts[0];
+        const idx = parseInt(parts[1], 10);
+        const agg = AGG_MAP[aggKey];
+        if(agg && agg.rows && agg.rows[idx]){
+          const it = agg.rows[idx];
+          const price = offer || (ORDER_ENTRIES[aggKey] && ORDER_ENTRIES[aggKey].offer ? ORDER_ENTRIES[aggKey].offer : '');
+          lines.push([
+            it.Sku || '',
+            it.Loc || '',
+            agg.Color || '',
+            agg.Header || '',
+            it.Variant || '',
+            qty,
+            price
+          ]);
+        }
+        continue;
+      }
+      // Aggregated row: allocate across underlying rows
+      const agg = AGG_MAP[key];
+      if(!agg || !agg.rows) continue;
+      let qtyNeeded = qty;
+      const price = offer;
+      for(const it of agg.rows){
+        const qEff = it.QtyAvail + (PREORDER_INCLUDE ? it.QtyPre : 0);
+        if(qEff <= 0) continue;
+        const qTake = qtyNeeded >= qEff ? qEff : qtyNeeded;
+        if(qTake > 0){
+          lines.push([
+            it.Sku || '',
+            it.Loc || '',
+            agg.Color || '',
+            agg.Header || '',
+            it.Variant || '',
+            qTake,
+            price
+          ]);
+          qtyNeeded -= qTake;
+        }
+        if(qtyNeeded <= 0) break;
+      }
+      if(qtyNeeded > 0){
+        const first = agg.rows[0];
+        lines.push([
+          first.Sku || '',
+          first.Loc || '',
+          agg.Color || '',
+          agg.Header || '',
+          first.Variant || '',
+          qtyNeeded,
+          price
+        ]);
+      }
+    }
+    if(lines.length <= 1){ alert('No order entries.'); return; }
+    const csv = lines.map(l => l.map(v => String(v).replace(/"/g,'""')).map(v => `"${v}"`).join(',')).join('\r\n');
+    const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
+    saveAs(blob, 'order_validation.csv');
+  }
+
+  // ===== Excel export with ExcelJS (borders + styles) =====
+  async function exportExcel(filteredOnly=false){
+    const rows = filteredOnly? applyFilters(DATA.rows) : DATA.rows;
+    const byCountry=new Map();
+    for(const r of rows){ if(!byCountry.has(r.Country)) byCountry.set(r.Country,new Map()); const m=byCountry.get(r.Country); if(!m.has(r.Header)) m.set(r.Header,new Map()); const n=m.get(r.Header); n.set(r.Color,(n.get(r.Color)||0)+r.Qty); }
+
+    const workbook = new ExcelJS.Workbook();
+    const countries = [...byCountry.keys()].sort(); if(countries.length===0){ alert('Nothing to export.'); return; }
+
+    for(const country of countries){
+      const ws = workbook.addWorksheet(String(country).slice(0,31), {views:[{state:'frozen', ySplit:1}]});
+      ws.columns = [{header:'Item', key:'item', width:60}, {header:'Qty', key:'qty', width:12}];
+      const borderThin = {top:{style:'thin'}, left:{style:'thin'}, bottom:{style:'thin'}, right:{style:'thin'}};
+
+      ws.getRow(1).font = {bold:true};
+      ws.getRow(1).alignment = {vertical:'middle'};
+
+      let grand=0; let r=2;
+      const models=[...byCountry.get(country).keys()].sort();
+      for(const hdr of models){
+        const colors = byCountry.get(country).get(hdr);
+        let subtotal=0; for(const q of colors.values()) subtotal+=q; grand+=subtotal;
+        ws.getCell(r,1).value = hdr; ws.getCell(r,1).font = {bold:true};
+        ws.getCell(r,2).value = subtotal; ws.getCell(r,2).numFmt = '#,##0'; ws.getCell(r,2).alignment = {horizontal:'right'};
+        ws.getCell(r,1).border = borderThin; ws.getCell(r,2).border = borderThin;
+        r++;
+        if(!SHOW_SUMMARY_ONLY){
+          const sortedColors = [...colors.entries()].sort((a,b)=> a[0].localeCompare(b[0]));
+          for(const [color,qty] of sortedColors){
+            ws.getCell(r,1).value = color; ws.getCell(r,1).alignment = {indent:2};
+            ws.getCell(r,2).value = qty; ws.getCell(r,2).numFmt = '#,##0'; ws.getCell(r,2).alignment = {horizontal:'right'};
+            ws.getCell(r,1).border = borderThin; ws.getCell(r,2).border = borderThin;
+            r++;
+          }
+          // Spacer row only when showing colours
+          ws.getCell(r,1).value = '';
+          ws.getCell(r,2).value = '';
+          ws.getCell(r,1).border = borderThin;
+          ws.getCell(r,2).border = borderThin;
+          r++;
+        }
+      }
+      ws.getCell(r,1).value = 'Total'; ws.getCell(r,1).font={bold:true};
+      ws.getCell(r,2).value = grand; ws.getCell(r,2).numFmt = '#,##0'; ws.getCell(r,2).alignment = {horizontal:'right'};
+      ws.getCell(r,1).border = borderThin; ws.getCell(r,2).border = borderThin;
+    }
+
+    const buf = await workbook.xlsx.writeBuffer();
+    // Construct a nicer file name. If exporting the filtered view, use a timestamp-based
+    // name of the form YYYYMMDDHH_ColourReport. Otherwise fall back to the dataset
+    // name (without extension) and append "_colour_breakdown".
+    let fname;
+    if(filteredOnly){
+      const now=new Date();
+      const ts = String(now.getFullYear()) + String(now.getMonth()+1).padStart(2,'0') + String(now.getDate()).padStart(2,'0') + String(now.getHours()).padStart(2,'0');
+      fname = `${ts}_ColourReport.xlsx`;
+    } else {
+      fname = (DATA.meta?.name||'color_breakdown').replace(/\.[^.]+$/,'') + '_colour_breakdown.xlsx';
+    }
+    saveAs(new Blob([buf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}), fname);
+  }
+
+  // ===== Snapshot export (remove import UI in the output) =====
+  function exportSnapshot(){
+    const doc=document.documentElement.cloneNode(true);
+    const script=doc.querySelector('#dataset'); if(script){ script.textContent=JSON.stringify(DATA); }
+    const up=doc.querySelector('#uploadRow'); if(up) up.remove();
+    const blob=new Blob(["<!doctype html>\n"+doc.outerHTML],{type:'text/html;charset=utf-8'});
+    const fname=(DATA.meta?.name||'snapshot').replace(/\.[^.]+$/,'')+'_snapshot.html'; saveAs(blob,fname);
+  }
+
+  // ===== Events =====
+  $('#btnParse')?.addEventListener('click', async ()=>{ const file=$('#file')?.files?.[0]; if(!file){ alert('Choose a file first'); return; } status('Parsing…'); try{ const json=await parseFile(file); processRaw(json); renderTable(); status(`Loaded: ${file.name} (rows: ${DATA.rows.length.toLocaleString()})`); $('#btnExportXlsx').disabled=false; $('#btnExportView').disabled=false; $('#btnExportHTML').disabled=false; }catch(e){ console.error(e); alert(e.message||String(e)); status('Load failed'); }});
+  $('#q').addEventListener('input', ()=>renderTable());
+  $('#btnClear').addEventListener('click', ()=>{
+    // Clear search and tokens
+    $('#q').value=''; MODEL_TOKENS=[]; renderTokens();
+    // Clear all selected chip filters
+    SELECTED_COUNTRIES.clear();
+    SELECTED_GRADES.clear();
+    SELECTED_CATEGORIES.clear();
+    SELECTED_SIMS.clear();
+    // Update chip highlights for each box
+    updateChipHighlights('#regionChips', SELECTED_COUNTRIES);
+    updateChipHighlights('#gradeChips', SELECTED_GRADES);
+    updateChipHighlights('#categoryChips', SELECTED_CATEGORIES);
+    updateChipHighlights('#simChips', SELECTED_SIMS);
+    // Reset binary filters
+    PREORDER_INCLUDE = false;
+    LOCKED_EXCLUDE = true;
+    // Rebuild binary chips to update highlights
+    buildPreorderChips();
+    buildLockedChips();
+    // Clear order entries and update buttons
+    ORDER_ENTRIES = {};
+    updateOrderButtons();
+    // Refresh table
+    renderTable();
+    clearTokenError();
+    // Clear any batch filter selections and file input
+    if(BATCH_SET){ BATCH_SET.clear(); }
+    const bfEl = document.getElementById('batchFile');
+    if(bfEl) bfEl.value = '';
+  });
+  $('#btnExportXlsx').addEventListener('click', ()=>exportExcel(false));
+  $('#btnExportView').addEventListener('click', ()=>exportExcel(true));
+  $('#btnExportHTML').addEventListener('click', exportSnapshot);
+  // Order export buttons
+  $('#btnExportOrderCsv')?.addEventListener('click', exportOrderCsv);
+  $('#btnExportValidationCsv')?.addEventListener('click', exportValidationCsv);
+  // Take all filtered: set quantity to max for all currently filtered rows
+  document.getElementById('btnTakeAllFiltered')?.addEventListener('click', ()=>{
+    const rows = applyFilters(DATA.rows);
+    for(const r of rows){
+      const qtyEff = r.QtyAvail + (PREORDER_INCLUDE ? r.QtyPre : 0);
+      if(!ORDER_ENTRIES[r.Key]) ORDER_ENTRIES[r.Key] = {qty:0, offer:''};
+      ORDER_ENTRIES[r.Key].qty = qtyEff;
+      // Clear per‑warehouse entries for this aggregated key
+      const agg = AGG_MAP[r.Key];
+      if(agg && agg.rows){
+        for(let i=0; i<agg.rows.length; i++){
+          const wkey = r.Key + '\u0002' + i;
+          if(ORDER_ENTRIES[wkey]) delete ORDER_ENTRIES[wkey];
+        }
+      }
+      // Do not override existing offer values
+    }
+    renderTable();
+    status('All filtered items set to maximum quantity');
+  });
+
+  // Batch filter loader: parse a file containing Region, Model Grade and optional Offer columns
+  document.getElementById('btnBatchFilter')?.addEventListener('click', async () => {
+    const fileInput = document.getElementById('batchFile');
+    const file = fileInput?.files?.[0];
+    if(!file){ alert('Choose a batch file first'); return; }
+    try{
+      const rows = await parseFile(file);
+      if(!rows || !rows.length){ alert('Batch file is empty'); return; }
+      // Determine column order: first column => region, second => model grade, third => offer (if present)
+      const keys = Object.keys(rows[0]||{});
+      if(keys.length < 2){ alert('Batch file must have at least two columns (Region and Model Grade)'); return; }
+      const colRegion = keys[0];
+      const colModelGrade = keys[1];
+      const colOffer = keys.length > 2 ? keys[2] : null;
+      // Reset batch filter sets
+      BATCH_SET.clear();
+      const batchOffers = new Map();
+      // Build sets and offer map
+      rows.forEach(r => {
+        const region = String(r[colRegion]||'').trim().toUpperCase();
+        const mg = String(r[colModelGrade]||'').trim();
+        if(!region || !mg) return;
+        const mgClean = mg.replace(/\s{2,}/g,' ').trim();
+        const keyPair = region + '\t' + mgClean.toLowerCase();
+        BATCH_SET.add(keyPair);
+        if(colOffer){
+          const offerVal = r[colOffer];
+          if(offerVal != null && String(offerVal).trim() !== ''){
+            batchOffers.set(keyPair, String(offerVal).trim());
+          }
+        }
+      });
+      // Apply batch filter: set quantities and offers on matching aggregated rows
+      for(const r of DATA.rows){
+        const keyPair = String(r.Country||'').toUpperCase() + '\t' + String(r.Header||'').toLowerCase();
+        if(BATCH_SET.has(keyPair)){
+          const qtyEff = r.QtyAvail + (PREORDER_INCLUDE ? r.QtyPre : 0);
+          if(!ORDER_ENTRIES[r.Key]) ORDER_ENTRIES[r.Key] = {qty:0, offer:''};
+          ORDER_ENTRIES[r.Key].qty = qtyEff;
+          if(batchOffers.has(keyPair)){
+            ORDER_ENTRIES[r.Key].offer = batchOffers.get(keyPair);
+          }
+        }
+      }
+      renderTable();
+      status(`Batch filter loaded (${BATCH_SET.size.toLocaleString()} pairs)`);
+    }catch(err){
+      console.error(err);
+      alert('Failed to load batch filter: ' + (err.message || String(err)));
+    }
+  });
+
+  // Summary toggle: update global flag and re-render table when changed
+  const summaryToggle = document.getElementById('summaryToggle');
+  if(summaryToggle){
+    summaryToggle.addEventListener('change', (e)=>{
+      SHOW_SUMMARY_ONLY = !!e.target.checked;
+      renderTable();
+    });
+  }
+
+  $('#btnApplyMap').addEventListener('click', ()=>{ DATA.regionMap = parseRegionMap($('#regionMapBox').value); reprocessWithMapping(); });
+  $('#btnDownloadMap').addEventListener('click', ()=>{ const blob=new Blob([$('#regionMapBox').value],{type:'text/plain;charset=utf-8'}); saveAs(blob,'region_mapping.txt'); });
+})();
+</script>
+</body>
+</html>
