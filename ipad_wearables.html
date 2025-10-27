@@ -1,0 +1,1762 @@
+<!doctype html>
+<!-- Test comment to check patching -->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>iPad &amp; Wearables Summary</title>
+  <style>
+    :root{--bg:#0b0c10;--fg:#e6e6e6;--muted:#a7a7a7;--accent:#87c4ff;--card:#14161c;--chip:#1b1f28;--border:#283041}
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.35 system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial}
+    header{position:sticky;top:0;z-index:10;background:linear-gradient(180deg,var(--bg),rgba(11,12,16,.6));backdrop-filter:saturate(1.1) blur(2px);border-bottom:1px solid var(--border)}
+    .wrap{max-width:1200px;margin:0 auto;padding:16px}
+    h1{font-size:18px;margin:0 0 6px}
+    .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:14px}
+    input[type="file"], input[type="text"], select, textarea{background:#0f121a;border:1px solid var(--border);color:var(--fg);padding:10px 12px;border-radius:10px;outline:none}
+    textarea{width:100%;min-height:180px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
+    button{background:#1e293b;border:1px solid var(--border);color:var(--fg);padding:10px 14px;border-radius:12px;cursor:pointer}
+    button.primary{background:var(--accent);border-color:#5ba9ff;color:#0b0c10;font-weight:600}
+    button:disabled{opacity:.6;cursor:not-allowed}
+    .muted{color:var(--muted)}
+    .chip{display:inline-flex;gap:6px;align-items:center;padding:6px 10px;background:var(--chip);border:1px solid var(--border);border-radius:999px}
+    table{width:100%;border-collapse:collapse}
+    th,td{padding:8px 10px;border-bottom:1px solid var(--border)}
+    th{color:#cfd8e3;text-align:left;font-weight:600}
+    .indent{padding-left:24px;color:#d6e1f3}
+    .total{font-weight:700;border-top:1px solid var(--border)}
+    .hint{font-size:12px;color:#9aa4b2}
+    .section{margin-top:16px}
+    .right{text-align:right}
+    .kbd{font:12px/1.2 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;background:#0f172a;border:1px solid var(--border);padding:2px 6px;border-radius:6px}
+
+    /* Multi-select chips */
+    .chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+    .chipbtn{padding:8px 12px;border:1px solid var(--border);border-radius:999px;background:#0f172a;color:#cbd5e1;cursor:pointer;user-select:none}
+    .chipbtn.active{background:var(--accent);color:#0b0c10;border-color:#5ba9ff;font-weight:700}
+
+    /* Tokenized model filter */
+    .tokens{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    .token{display:flex;align-items:center;gap:6px;background:#0f172a;border:1px solid var(--border);border-radius:999px;padding:6px 10px}
+    .token .x{cursor:pointer;opacity:.8}
+    .tokeninput{min-width:220px;flex:1}
+    .sugg{position:relative}
+    .sugglist{position:absolute;z-index:20;background:#0f121a;border:1px solid var(--border);border-radius:10px;max-height:220px;overflow:auto;padding:6px;display:none}
+    .sugglist.open{display:block}
+    .suggitem{padding:6px 8px;border-radius:8px;cursor:pointer}
+    .suggitem:hover{background:#121a2b}
+
+    /* Error message for token validation */
+    .error{color:#fca5a5;font-size:12px;margin-top:6px}
+
+    details{margin-top:10px}
+    summary{cursor:pointer;color:#dbeafe}
+  </style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <!-- Updated heading for iPad & Wearables tool -->
+    <h1>iPad &amp; Wearables Summary <span class="muted">— Self‑Contained Snapshot</span></h1>
+    <div id="status" class="muted">No dataset loaded</div>
+    <!-- Display which CSV file was auto-loaded -->
+    <span id="lastUpdatedBadge" style="font-size:12px;opacity:0.8;margin-left:8px;"></span>
+  </div>
+</header>
+
+<main class="wrap">
+  <!-- Controls first, table later (more room for filters) -->
+  <section class="card">
+    <div class="row" id="uploadRow">
+      <input id="file" type="file" accept=".xlsx,.xls,.csv" />
+      <button id="btnParse" class="primary">Load file</button>
+      <button id="btnExportHTML" disabled>Export Full HTML (Snapshot)</button>
+      <!-- Additional batch filter input: allows uploading a CSV/XLSX with Region, Model Grade, Offer columns -->
+      <input id="batchFile" type="file" accept=".xlsx,.xls,.csv" style="margin-left:8px" />
+      <button id="btnBatchFilter" title="Load batch filter of Region/Model Grade/Offer">Batch filter</button>
+      <!-- New name mapping file input (pricing SKU -> English name). Select this file and click "Load name map" to apply mapping -->
+      <input id="nameFile" type="file" accept=".xlsx,.xls,.csv" style="margin-left:8px" />
+      <button id="btnNameMap" title="Load the selected name mapping file">Load name map</button>
+    </div>
+
+    <div class="row section">
+      <div class="tokens" style="width:100%">
+        <div id="tokenWrap" class="tokens"></div>
+      </div>
+      <div class="sugg" style="width:100%">
+        <input id="modelInput" class="tokeninput" type="text" placeholder="Type to add model tokens… (OR filter, grade removed automatically)" />
+        <div id="sugglist" class="sugglist"></div>
+        <!-- Error message for invalid model tokens -->
+        <div id="tokenError" class="error" style="display:none"></div>
+      </div>
+    </div>
+
+    <div class="row section">
+      <input id="q" type="text" placeholder="Free text search… (applies to Model/Capacity/Grade)" style="min-width:320px" />
+      <button id="btnClear">Clear filters</button>
+      <div class="muted">Model tokens = OR (grade ignored). Use the <strong>Region</strong>, <strong>Grade</strong>, and <strong>Category</strong> chips to narrow further.</div>
+    </div>
+
+    <div class="section">
+      <div class="muted">Regions (multi-select chips):</div>
+      <div id="regionChips" class="chips"></div>
+    </div>
+
+    <div class="section">
+      <div class="muted">Grades (multi-select chips):</div>
+      <div id="gradeChips" class="chips"></div>
+    </div>
+
+    <div class="section">
+      <div class="muted">Categories (multi-select chips):</div>
+      <div id="categoryChips" class="chips"></div>
+    </div>
+
+    <!-- Removed SIM, Preorder and Locked unit sections for the iPad/Wearables tool -->
+
+    <details class="section">
+      <summary>Region classification (click to open) — defaults loaded; you can add more lines (format: <span class="kbd">LOCATION_CODE<TAB>REGION</span>)</summary>
+      <textarea id="regionMapBox"></textarea>
+      <div class="row" style="margin-top:8px">
+        <button id="btnApplyMap">Apply Mapping</button>
+        <button id="btnDownloadMap">Download Mapping</button>
+        <span class="hint">When applied, the dataset is reprocessed using this mapping (no re-upload).</span>
+      </div>
+    </details>
+
+    <div class="card section">
+      <div class="row">
+        <button id="btnExportXlsx" disabled>Export Excel (All Countries)</button>
+        <button id="btnExportView" disabled>Export Excel (Filtered View)</button>
+        <span class="hint">Excel export uses <strong>ExcelJS</strong> with borders, bold model rows, indentation, widths, and frozen header.</span>
+      </div>
+    </div>
+
+    <div class="card section">
+      <div class="row">
+        <button id="btnExportOrderCsv" disabled>Export Order CSV</button>
+        <button id="btnExportValidationCsv" disabled>Export Validation CSV</button>
+        <span class="hint">Order exports use the quantities and offers you specify in the breakdown table below.</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="card section">
+    <div class="row">
+        <div class="muted">Showing <span id="rowsCount">0</span> rows</div>
+        <!-- New button: take all quantities for currently filtered rows -->
+        <button id="btnTakeAllFiltered" title="Set all filtered rows to their maximum quantity" style="margin-left:auto; margin-right:8px; padding:6px 12px; font-size:13px">All (filtered)</button>
+        <!-- Summary only toggle removed; the iPad/Wearables tool always shows summary rows only -->
+    </div>
+    <div id="table"></div>
+  </section>
+</main>
+
+<script id="dataset" type="application/json"></script>
+
+<!-- Libs -->
+<script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+
+<!-- Autoload CSV script: fetches a dataset CSV and feeds it into the
+     existing pipeline. See README for query parameters controlling
+     behaviour. -->
+<script>
+(function(){
+  async function autoloadCSV(){
+    try{
+      const params = new URLSearchParams(window.location.search);
+      if(params.has('disableAutoload')) return;
+      // Resolve which dataset to load. Prefer ?dataset=, then try data/latest.csv,
+      // otherwise attempt to scan the data/ directory for a single CSV file.
+      let dataset = params.get('dataset');
+      let baseName = null;
+      if(!dataset){
+        // Try the conventional name first
+        try{
+          const testRes = await fetch('data/latest.csv', {cache:'no-store'});
+          if(testRes.ok){
+            dataset = 'data/latest.csv';
+            baseName = 'latest.csv';
+          }
+        }catch(e){}
+        // If latest.csv doesn't exist, attempt to find any CSV in the directory listing
+        if(!dataset){
+          try{
+            const listing = await fetch('data/', {cache:'no-store'});
+            if(listing.ok){
+              const html = await listing.text();
+              const match = html && html.match(/href="([^"\?#]+\.csv)"/i);
+              if(match){
+                const fname = match[1].split('/').pop();
+                dataset = 'data/' + fname;
+                baseName = fname;
+              }
+            }
+          }catch(e){}
+        }
+      } else {
+        baseName = dataset.split('/').pop();
+      }
+      if(!dataset){
+        console.warn('No CSV found to autoload');
+        return;
+      }
+      // Append a cache-busting parameter to avoid stale caches
+      const buster = params.get('v') || Date.now();
+      const csvPath = dataset + (dataset.includes('?') ? '&' : '?') + 'v=' + buster;
+      const res = await fetch(csvPath, {cache:'no-store'});
+      if(!res.ok) throw new Error(`Autoload failed (${res.status} ${res.statusText})`);
+      const text = await res.text();
+      // Wrap the CSV text in a File object so the existing parsing path is used
+      const blob = new Blob([text], {type:'text/csv'});
+      const file = new File([blob], baseName || 'latest.csv', {type:'text/csv'});
+      const fileInput = document.getElementById('file');
+      if(!fileInput) return;
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      fileInput.files = dt.files;
+      // Trigger the Parse button click to run the original handler
+      const parseBtn = document.getElementById('btnParse');
+      if(parseBtn) parseBtn.click();
+      // Leave the upload row visible so the user can load another file manually
+      const upRow = document.getElementById('uploadRow');
+      // (not hiding upload UI)
+      // Update the status and the badge with loaded file name
+      const statusEl = document.getElementById('status');
+      if(statusEl) statusEl.textContent = `Loaded: ${baseName}`;
+      const badge = document.getElementById('lastUpdatedBadge');
+      if(badge) badge.textContent = `Loaded: ${baseName}`;
+    } catch(err){
+      console.warn(err);
+    }
+  }
+  document.addEventListener('DOMContentLoaded', autoloadCSV);
+})();
+</script>
+
+<script>
+(function(){
+  const $ = sel => document.querySelector(sel);
+  const $$ = sel => Array.from(document.querySelectorAll(sel));
+  const status = msg => { $('#status').textContent = msg; };
+  const fmtInt = n => (n||0).toLocaleString();
+
+  // ===== Name mapping (SKU without grade -> canonical English name & synonyms) =====
+  // NAME_MAP maps a base SKU (full SKU without the trailing grade segment) to an object with fields:
+  //   canonical: the canonical English name to use for display and grouping
+  //   synonyms: a Set of alternative English names (including the canonical)
+  // SYNONYM_MAP maps a lower‑case English name to its canonical form, allowing token inputs to be normalised.
+  let NAME_MAP = {};
+  let SYNONYM_MAP = {};
+
+  /**
+   * Given a full SKU from the stock file (which may include variant and grade segments),
+   * determine the canonical English name based on the pricing SKU mapping. The pricing
+   * SKU is the prefix in NAME_MAP that best matches the full SKU. If multiple
+   * pricing SKUs could match, the longest prefix is chosen. Returns null if no
+   * mapping exists.
+   * @param {string} sku Full SKU from stock file (e.g. WB-AP-WA10AL-FAC-042-JB-A3001-W)
+   * @returns {string|null} canonical English name or null
+   */
+  function getCanonicalFromSku(sku){
+    if(!sku) return null;
+    // Determine the SKU without its grade suffix and normalise case
+    let noGrade = removeGradeFromSku(String(sku)).toUpperCase();
+    // Split into segments. We will attempt to find the longest matching prefix
+    const parts = noGrade.split('-');
+    for(let i=parts.length; i>=1; i--){
+      const prefix = parts.slice(0,i).join('-');
+      const entry = NAME_MAP[prefix];
+      if(entry && entry.canonical) return entry.canonical;
+    }
+    return null;
+  }
+
+  /**
+   * Get the grade code from the SKU. Grades are denoted by the final segment in
+   * the SKU (after the last dash) when that segment matches one of the known
+   * grade codes (W, WP, A, B, C, Z, DX). Returns an empty string if no grade
+   * code is present.
+   * @param {string} sku Full SKU
+   * @returns {string} grade code or ''
+   */
+  function getGradeFromSku(sku){
+    if(!sku) return '';
+    const parts = String(sku).trim().split('-');
+    if(!parts.length) return '';
+    const last = parts[parts.length - 1];
+    const g = String(last || '').toUpperCase();
+    // Match against known grade codes (single or two-letter codes). Include new codes.
+    if(/^(W|WP|A|B|C|Z|DX|D|F|AS|CP|NB)$/.test(g)) return g;
+    return '';
+  }
+
+  /**
+   * Remove the grade suffix from a SKU. A grade suffix is the last segment
+   * after the final dash when that segment matches one of the known grade
+   * codes (W, WP, A, B, C, Z, DX). If no grade code is present, returns the
+   * original SKU trimmed. For example, "WB-AP-WA10AL-FAC-042-JB-A3001-W" ->
+   * "WB-AP-WA10AL-FAC-042-JB-A3001".
+   * @param {string} sku Full SKU from stock file
+   * @returns {string} base SKU without grade
+   */
+  function removeGradeFromSku(sku){
+    if(!sku) return '';
+    const s = String(sku).trim();
+    const parts = s.split('-');
+    if(parts.length === 0) return s;
+    const last = parts[parts.length - 1].toUpperCase();
+    // Remove grade suffix if last segment matches one of the known grade codes
+    if(/^(W|WP|A|B|C|Z|DX|D|F|AS|CP|NB)$/.test(last)){
+      return parts.slice(0, parts.length - 1).join('-');
+    }
+    return s;
+  }
+
+  /**
+   * Retrieve an array of synonyms (English names) for a given full SKU. The
+   * underlying pricing SKU is determined by matching the full SKU to the
+   * pricing SKU keys in NAME_MAP (longest prefix wins). Returns null if no
+   * mapping exists. The returned array includes the canonical English name
+   * and all synonyms for that pricing SKU.
+   * @param {string} sku Full SKU
+   * @returns {Array<string>|null}
+   */
+  function getSynonymsFromSku(sku){
+    if(!sku) return null;
+    let noGrade = removeGradeFromSku(String(sku)).toUpperCase();
+    const parts = noGrade.split('-');
+    for(let i=parts.length; i>=1; i--){
+      const prefix = parts.slice(0,i).join('-');
+      const entry = NAME_MAP[prefix];
+      if(entry && entry.synonyms) return Array.from(entry.synonyms);
+    }
+    return null;
+  }
+
+  /**
+   * Load a name mapping file and build the NAME_MAP and SYNONYM_MAP global
+   * dictionaries. The mapping file should have at least two columns: the first
+   * column contains the pricing SKU prefix, and the second column contains the
+   * English name. Additional columns are ignored. Duplicate pricing SKUs will
+   * merge synonyms; the first occurrence determines the canonical name.
+   * After loading the map, the dataset is reprocessed to apply canonical names,
+   * model suggestions are rebuilt and the table is re-rendered.
+   * @param {File} file The uploaded mapping file
+   */
+  async function loadNameMapFile(file){
+    const rows = await parseFile(file);
+    if(!rows || !rows.length){ alert('Name mapping file is empty'); return; }
+    const keys = Object.keys(rows[0] || {});
+    if(keys.length < 2){ alert('Name mapping file must have at least two columns (pricing SKU and English name)'); return; }
+    const colSku = keys[0];
+    const colName1 = keys[1];
+    const colSyns = keys.length > 2 ? keys[2] : null;
+    NAME_MAP = {};
+    SYNONYM_MAP = {};
+    // Determine if we should restrict to needed pricing skus
+    const needed = (NEEDED_PRICING_SKUS && NEEDED_PRICING_SKUS.size > 0) ? new Set(Array.from(NEEDED_PRICING_SKUS).map(s => s.toUpperCase())) : null;
+    let processed = 0;
+    for(const r of rows){
+      const psRaw = r[colSku];
+      if(psRaw == null) continue;
+      const ps = String(psRaw).trim();
+      if(!ps) continue;
+      const psUpper = ps.toUpperCase();
+      // Skip if needed set is defined and this pricing sku is not needed
+      if(needed && !needed.has(psUpper)) continue;
+      // Gather names from columns
+      const names = [];
+      const name1 = r[colName1];
+      if(name1 != null){ const n = String(name1).trim(); if(n) names.push(n); }
+      if(colSyns){
+        const synField = r[colSyns];
+        if(synField != null){
+          const synStr = String(synField).trim();
+          if(synStr){
+            // Split synonyms by pipe or comma
+            synStr.split(/[|,]/).forEach(part => {
+              const partTrim = String(part).trim(); if(partTrim) names.push(partTrim);
+            });
+          }
+        }
+      }
+      if(!names.length) continue;
+      if(!NAME_MAP[ps]){
+        NAME_MAP[ps] = { canonical: names[0], synonyms: new Set(names) };
+        processed++;
+      } else {
+        const set = NAME_MAP[ps].synonyms;
+        names.forEach(n => { set.add(n); });
+      }
+    }
+    // Build synonym reverse lookup: lower-case name -> canonical
+    for(const ps in NAME_MAP){
+      if(!Object.prototype.hasOwnProperty.call(NAME_MAP, ps)) continue;
+      const canonical = NAME_MAP[ps].canonical;
+      const syns = NAME_MAP[ps].synonyms;
+      for(const syn of syns){
+        const key = String(syn).trim().toLowerCase();
+        if(!SYNONYM_MAP[key]) SYNONYM_MAP[key] = canonical;
+      }
+    }
+    // If we have a dataset loaded, reprocess rows to apply canonical names
+    if(DATA.raw && DATA.raw.length){
+      reprocessWithMapping();
+    }
+    buildModelSuggestions();
+    renderTable();
+    status(`Name map loaded (${processed.toLocaleString()} pricing SKUs)`);
+  }
+
+  /**
+   * Build the NAME_MAP and SYNONYM_MAP dictionaries from the provided name mapping
+   * rows and the dataset rows. The mapping file should contain at least two
+   * columns: the first column holds the SKU (without grade) and the second
+   * column holds the English name. An optional third column can contain
+   * additional synonyms separated by pipe (|) or comma. Only mappings for
+   * SKUs that appear in the dataset (minus their grade) will be stored to
+   * reduce processing overhead.
+   *
+   * @param {Array<object>} mapRows Parsed rows from the name mapping file
+   * @param {Array<object>} datasetRows Parsed rows from the dataset file
+   */
+  function buildSkuNameMapFromRows(mapRows, datasetRows){
+    NAME_MAP = {};
+    SYNONYM_MAP = {};
+    if(!mapRows || !mapRows.length || !datasetRows || !datasetRows.length) return;
+    // Determine which pricing SKU prefixes from the dataset we actually need. For each
+    // SKU in the dataset (minus its grade), compute its pricing prefix (first
+    // five segments if available) and add to a set. Only mapping entries whose
+    // pricing_sku matches one of these prefixes will be kept.
+    const neededPricing = new Set();
+    {
+      const cols = Object.keys(datasetRows[0] || {});
+      const colSku = pickCol(cols, ['SKU','Sku','Short SKU','Item Code','SKU Code']);
+      if(colSku){
+        for(const r of datasetRows){
+          const skuVal = r[colSku];
+          if(!skuVal) continue;
+          // Remove grade suffix
+          const skuNoGrade = removeGradeFromSku(String(skuVal));
+          if(!skuNoGrade) continue;
+          const parts = skuNoGrade.split('-');
+          const prefix = parts.length >= 5 ? parts.slice(0,5).join('-') : parts.join('-');
+          if(prefix) neededPricing.add(prefix.toUpperCase());
+        }
+      }
+    }
+    // Identify columns in the mapping file
+    const keys = Object.keys(mapRows[0] || {});
+    if(keys.length < 2) return;
+    // Determine the pricing_sku column
+    let mapPricingCol = null;
+    for(const k of keys){ if(/pricing\s*_?sku/i.test(k)) { mapPricingCol = k; break; } }
+    // If no pricing_sku column, fall back to 'pricing sku' or the last column
+    if(!mapPricingCol){
+      // fallback to the last column if there are at least 3 columns
+      if(keys.length >= 3) mapPricingCol = keys[keys.length - 1];
+      else mapPricingCol = keys[0];
+    }
+    // Determine name columns: choose columns that likely contain English names. Exclude any columns
+    // that appear to be SKU identifiers (contain 'sku' in the key) and exclude the pricing column.
+    let mapNameCol1 = null;
+    let mapNameCol2 = null;
+    // Build list of candidate name columns excluding pricing column and any column whose name includes 'sku'
+    const nameCandidates = keys.filter(k => {
+      if(k === mapPricingCol) return false;
+      // Exclude SKU-like columns (case-insensitive)
+      return !/sku/i.test(k);
+    });
+    if(nameCandidates.length > 0) mapNameCol1 = nameCandidates[0];
+    if(nameCandidates.length > 1) mapNameCol2 = nameCandidates[1];
+    // Build NAME_MAP from mapping rows, keyed by pricing_sku
+    for(const row of mapRows){
+      const psField = row[mapPricingCol];
+      if(!psField) continue;
+      const ps = String(psField).trim();
+      if(!ps) continue;
+      const psUpper = ps.toUpperCase();
+      // Only include mapping entries for pricing_sku prefixes present in the dataset
+      if(neededPricing.size > 0 && !neededPricing.has(psUpper)) continue;
+      const names = [];
+      if(mapNameCol1){
+        const val = row[mapNameCol1];
+        if(val != null){ const n = String(val).trim(); if(n) names.push(n); }
+      }
+      if(mapNameCol2){
+        const val2 = row[mapNameCol2];
+        if(val2 != null){
+          const s = String(val2).trim();
+          if(s){
+            s.split(/[|,]/).forEach(part => {
+              const p = String(part).trim(); if(p) names.push(p);
+            });
+          }
+        }
+      }
+      if(!names.length) continue;
+      if(!NAME_MAP[psUpper]){
+        NAME_MAP[psUpper] = { canonical: names[0], synonyms: new Set(names) };
+      } else {
+        const set = NAME_MAP[psUpper].synonyms;
+        names.forEach(n => { set.add(n); });
+      }
+    }
+    // Build synonym reverse lookup: lower-case name -> canonical
+    for(const ps in NAME_MAP){
+      if(!Object.prototype.hasOwnProperty.call(NAME_MAP, ps)) continue;
+      const canonical = NAME_MAP[ps].canonical;
+      const syns = NAME_MAP[ps].synonyms;
+      for(const syn of syns){
+        const key = String(syn).trim().toLowerCase();
+        if(!SYNONYM_MAP[key]) SYNONYM_MAP[key] = canonical;
+      }
+    }
+  }
+
+  // ==== Region mapping (defaults) ====
+  const DEFAULT_REGION_MAP_TEXT = `AU_IE_VERSER_B2B\tAU
+AU_B2C\tAU
+AU_IE_VERSER_B2B_Boxed\tAU
+US_B2B\tUS
+US_B2C\tUS
+US_B2B_Boxed\tUS
+UK_MRC_MVA_B2B_Boxed\tUK
+UK_MRC_VAT_B2B_Boxed\tUK
+UK_MRC_VAT_B2B\tUK
+UK_MRC_MVA_B2B\tUK
+UK_MRC_MVA_B2C\tUK
+UK_MRC_VAT_B2C\tUK
+UK_IE_MVA_B2C\tUK
+UK_MRC_VAT_RMA\tUK
+US_RMA\tUS
+AU_IE_B2B_Boxed\tAU
+AU_B2B\tAU
+AU_IE_B2B\tAU
+HK_FSET_B2B\tHK
+HK_FSET_RMA\tHK
+AU_RMA\tAU
+DHL_DE\tIE
+DHL_FR\tIE
+DHL_IT\tIE
+DHL_SP\tIE
+DHL_CH\tIE
+SCHNL\tIE
+DHLNL\tIE
+UK_IE_MVA_B2B\tUK
+UTLUK\tUK
+UK_IE_MVA_RMA\tUK
+UK_IE_VAT_B2B\tUK
+AU_IE_RMA\tAU
+UK_IE_VAT_B2C\tUK
+UK_IE_VAT_RMA\tUK
+UK_MRC_MVA_RMA\tUK
+HK_IE_FSET_B2B\tHK
+HK_IE_FSET_RMA\tHK
+US_IE_B2B\tUS
+US_IE_RMA\tUS
+IE_IE_MVA_B2B\tIE
+IE_IE_VAT_B2B\tIE
+IE_LOOP_MVA_B2C\tIE
+IE_LOOP_VAT_B2C\tIE
+IE_LOOP_MVA_RMA\tIE
+IE_LOOP_VAT_RMA\tIE
+IE_IE_MVA_RMA\tIE
+IE_IE_VAT_RMA\tIE
+DSCAU\tAU
+SCHJP\tJP
+JP_B2C\tJP
+JP_RMA\tJP
+SCHKR\tKR
+SCHTW\tTW
+UK_MRC_MVA_B2C\tUK
+AU_processing\tAU
+KR_IE_SKN_B2B\tKR
+IE_IE_MVA_B2C\tIE
+Loop IE\tIE
+UK_MRC_MVA_B2C_PRM\tUK
+UK_MRC_VAT_B2C_PRM\tUK
+IE_LOOP_MVA_B2C_PRM\tIE
+IE_LOOP_VAT_B2C_PRM\tIE
+US_B2B_2\tUS
+US_MI_B2B\tUS
+DUB_B2B\tDUB
+DUB_B2B_BOXED\tDUB
+DUB_B2B_2\tDUB
+CA_B2B_Boxed\tCA`;
+
+  function parseRegionMap(text){
+    const map = Object.create(null);
+    (text||'').split(/\r?\n/).forEach(line=>{
+      const t = line.trim(); if(!t) return;
+      const [code, region] = t.split(/\t|\s{2,}|\s,|,/); // allow tab or comma
+      if(code && region) map[code.trim()] = region.trim().toUpperCase();
+    });
+    return map;
+  }
+
+  // ==== Column helpers ====
+  function pickCol(cols, aliases){
+    const lower = Object.fromEntries(cols.map(c=>[c.toLowerCase(),c]));
+    for(const a of aliases){ if(lower[a.toLowerCase()]) return lower[a.toLowerCase()]; }
+    return null;
+  }
+  function normalizeQty(v){
+    if(v==null) return 0; const s = String(v).replace(/,/g,'').trim();
+    if(!s || s.toLowerCase()==='nan' || s.toLowerCase()==='none') return 0; const f = Number(s); return isFinite(f)? Math.round(f):0;
+  }
+  /**
+   * Determine if a row belongs to the categories we care about in the iPad/Wearables tool.
+   * In the original iPhone tool we filtered for iPhones only. Here we keep rows
+   * where the product category is "Tablets" (iPad) or "Wearables" (Watch/AirPods).
+   * If the category column is unavailable, we fall back to matching on the model
+   * string to catch obvious cases of iPad or Watch. The check is case‑insensitive.
+   */
+  function isTargetDevice(row, colFamily, colModel, colCategory){
+    const category = (colCategory ? String(row[colCategory]||'').toLowerCase() : '');
+    // Accept rows with explicit categories
+    if(category.includes('tablet') || category.includes('wearable')){
+      return true;
+    }
+    // Fallback: examine family and model names for iPad or Watch patterns
+    const fam = (colFamily ? String(row[colFamily]||'').toLowerCase() : '');
+    const m   = (colModel ? String(row[colModel]||'').toLowerCase() : '');
+    return /ipad|watch|airpods|earpods|band/.test(fam) || /ipad|watch|airpods|earpods|band/.test(m);
+  }
+
+  // Determine if a network should be excluded when LOCKED_EXCLUDE is true.
+  // Networks like AT&T, FAP, TracFone/StraightTalk, and specific battery/carrier descriptors are excluded.
+  // Also exclude values containing "Locked" but not containing "Unlocked".
+  function isDontIncludeNetwork(net){
+    if(!net) return false;
+    const n = String(net).toLowerCase();
+    // Explicit phrases
+    if(/at&\s*t/i.test(n)) return true;
+    if(/\bfap\b/i.test(n)) return true;
+    if(/tracfone|straight.?talk/i.test(n)) return true;
+    if(/new battery, carrier unlocked/i.test(n)) return true;
+    if(/premium battery, oem parts, carrier unlocked/i.test(n)) return true;
+    // Generic locked but not unlocked
+    if(/locked/.test(n) && !/unlocked/.test(n)) return true;
+    return false;
+  }
+  function extractCapacity(text){ if(!text) return ''; const m = String(text).toUpperCase().match(/(\d+\s*(GB|TB))/); return m? m[1].replace(/\s+/g,'') : ''; }
+  function modelBase(text, cap, grade){
+    if(!text) return 'Unknown Model'; let t = String(text).trim(); const C = (cap||'').toUpperCase();
+    if(C && t.toUpperCase().includes(C)) t = t.replace(new RegExp(C,'i'),'').trim();
+    t = t.replace(/-(W|WP|A|B|C|Z|DX)\b/i,'').trim(); t = t.replace(/\s{2,}/g,' '); return t;
+  }
+  function buildHeader(row, colModel, colGrade, colCapacity){
+    // For the iPad & Wearables tool, attempt to derive the model/grade using the SKU name mapping if available.
+    // If a SKU column exists and a mapping is loaded, derive the canonical English name and grade from the SKU.
+    // When mapping is active, attempt to derive the model/grade using the SKU name mapping. Otherwise, fall back.
+    if(MAPPING_ACTIVE){
+      try{
+        // Determine SKU column from mapping stored in DATA.mapping
+        const colSkuLocal = DATA.mapping?.colSku;
+        if(colSkuLocal){
+          const sku = String(row[colSkuLocal]||'').trim();
+          if(sku){
+            const canonical = getCanonicalFromSku(sku);
+            if(canonical){
+              // Determine grade from dataset column if available, else from SKU suffix
+              let gradeCode = '';
+              if(colGrade){
+                const gval = row[colGrade];
+                if(gval != null){
+                  const gStr = String(gval).trim().toUpperCase();
+                  if(gStr) gradeCode = gStr;
+                }
+              }
+              if(!gradeCode){
+                gradeCode = getGradeFromSku(sku);
+              }
+              // Build display name: include all synonyms if multiple exist
+              let nameToUse = canonical;
+              const syns = getSynonymsFromSku(sku);
+              if(syns && syns.length > 1){
+                // Remove any grade suffix from synonyms and deduplicate
+                const cleaned = [];
+                const seenNames = new Set();
+                for(const s of syns){
+                  let nm = String(s||'').replace(GRADE_SUFFIX_RE,'').trim();
+                  if(!nm) continue;
+                  if(!seenNames.has(nm.toLowerCase())){
+                    seenNames.add(nm.toLowerCase());
+                    cleaned.push(nm);
+                  }
+                }
+                if(cleaned.length){
+                  nameToUse = cleaned.join(' / ');
+                }
+              }
+              const headerName = nameToUse + (gradeCode ? '-' + gradeCode : '');
+              return headerName;
+            }
+          }
+        }
+      }catch(err){ /* ignore and fall back */ }
+    }
+    // Fallback: use original buildHeader logic (remove capacity and grade from model column)
+    const m = colModel? row[colModel]: '';
+    // Prefer grade from dataset column if available
+    let g = '';
+    if(colGrade){
+      const gv = row[colGrade];
+      if(gv != null){
+        const gStr = String(gv).trim().toUpperCase();
+        if(gStr) g = gStr;
+      }
+    }
+    if(!g){
+      // Derive grade from SKU if column absent
+      try{
+        const colSkuLocal = DATA.mapping?.colSku;
+        if(colSkuLocal){
+          const sku = String(row[colSkuLocal]||'').trim();
+          if(sku){
+            g = getGradeFromSku(sku) || '';
+          }
+        }
+      }catch(e){}
+    }
+    let cap = (colCapacity? String(row[colCapacity]||'').trim().toUpperCase(): ''); if(!cap) cap = extractCapacity(m);
+    const base = modelBase(m, cap, g);
+    let label = base;
+    if(cap) label += ' ' + cap;
+    if(g) label += '-' + g;
+    return label || 'Unknown Model';
+  }
+
+  // ==== Data store ====
+  let DATA = { raw: [], rows: [], cols: [], mapping: {}, meta: {name:null, hash:null, ts:Date.now(), countries:[], grades:[], categories:[], sims:[]}, regionMap: parseRegionMap(DEFAULT_REGION_MAP_TEXT) };
+
+  // ===== Batch filter storage =====
+  // Stores the set of (Region, Model Grade) pairs uploaded via batch filter for filtering.
+  // The key format is "REGION\tmodel-grade" (region upper‑case, model-grade lower‑case).
+  let BATCH_SET = new Set();
+
+  // ===== Mapping activation flag =====
+  // When true, canonical names from the name mapping are applied to build the Header field.
+  // When false, the tool derives names solely from the stock dataset (no mapping).
+  let MAPPING_ACTIVE = false;
+
+  // ===== Chip selections =====
+  // Declare selected sets before the snapshot boot logic so they exist when populateFilters is called.
+  let SELECTED_COUNTRIES = new Set();
+  let SELECTED_GRADES = new Set();
+  let SELECTED_CATEGORIES = new Set();
+  let SELECTED_SIMS = new Set();
+
+  // ===== Binary filters for preorder and locked units =====
+  // In the iPad/Wearables tool, preorder quantities are always included, and locked units are not excluded.
+  let PREORDER_INCLUDE = true;
+  let LOCKED_EXCLUDE = false;
+
+  // ===== Order and aggregation mappings =====
+  // AGG_MAP stores details of each aggregated row keyed by a composite key.
+  let AGG_MAP = {};
+  // ORDER_ENTRIES stores user‑entered order quantities and offers keyed by the same composite key.
+  let ORDER_ENTRIES = {};
+
+  // ===== Needed pricing SKUs =====
+  // After processing the dataset, this set will contain the pricing SKU prefixes (first
+  // few segments of the SKU) that appear in the stock data. When loading a
+  // large name mapping file, we can restrict processing to only those pricing
+  // SKUs that are relevant for the current dataset to improve performance.
+  let NEEDED_PRICING_SKUS = null;
+
+  // ===== Summary toggle =====
+  // In this tool we always show summary rows only (no colour breakdown). Set to true by default.
+  let SHOW_SUMMARY_ONLY = true;
+
+  // ===== Model suggestion helper =====
+  // Suggestion lists for model filter; declare early for snapshot initialisation
+  // MODEL_SUGG holds the human‑readable model strings. MODEL_SUGG_LOWER holds
+  // lower‑case versions for matching/validation. Declaring these here ensures
+  // they are defined before any snapshot boot logic runs, avoiding temporal
+  // dead‑zone issues when buildModelSuggestions() is called during initialisation.
+  let MODEL_SUGG = [];
+  let MODEL_SUGG_LOWER = [];
+
+  // ===== Tokenized model OR-filter (gradeless) =====
+  // Declare MODEL_TOKENS and regex constants before any snapshot boot logic. These
+  // are used by buildModelSuggestions() and other functions during initialisation.
+  let MODEL_TOKENS = [];
+  // Grade suffix pattern: match hyphen followed by one of the known grade codes at the end of the string.
+  // Updated to include additional grade codes observed in the iPad/Wearables dataset (e.g., D, F, AS, CP, NB).
+  const GRADE_SUFFIX_RE = /-(W|WP|A|B|C|Z|DX|D|F|AS|CP|NB)\s*$/i;
+  // Regex to match tokens that are solely a grade (used for validation)
+  // Include all known grade codes found in the iPad/Wearables data (e.g., D, F, AS, CP, NB)
+  const PURE_GRADE_RE = /^(?:W|WP|A|B|C|Z|DX|D|F|AS|CP|NB)$/i;
+
+  // ===== Error helpers for model tokens =====
+  function showTokenError(msg){ const el = document.getElementById('tokenError'); if(!el) return; el.textContent = msg; el.style.display = msg? 'block':'none'; }
+  function clearTokenError(){ showTokenError(''); }
+
+  // Try boot from embedded snapshot; if so, remove upload UI (snapshot should be filter-only)
+  (function bootFromSnapshot(){ try{ const node=$('#dataset'); if(node && node.textContent?.trim().length){ const json=JSON.parse(node.textContent); DATA=json; populateFilters(true); renderTable(); status(`Loaded snapshot: ${DATA.meta?.name||'dataset'} (rows: ${fmtInt(DATA.rows.length)})`); $('#btnExportXlsx').disabled=false; $('#btnExportView').disabled=false; $('#btnExportHTML').disabled=false; const up=$('#uploadRow'); if(up) up.remove(); } else { $('#regionMapBox').value = DEFAULT_REGION_MAP_TEXT; } }catch(e){ console.warn('Snapshot load failed',e); $('#regionMapBox').value = DEFAULT_REGION_MAP_TEXT; } })();
+
+  // Read file (CSV/XLSX)
+  async function parseFile(file){ const buf=await file.arrayBuffer(); const wb=XLSX.read(buf,{type:'array'}); const ws=wb.Sheets[wb.SheetNames[0]]; return XLSX.utils.sheet_to_json(ws,{defval:'',raw:false}); }
+
+  function deriveCountryFromMapping(row, colCountry, colLocation){
+    let c = (colCountry? String(row[colCountry]||'').trim() : '');
+    if(!c){
+      const loc = String(colLocation? row[colLocation]||'' : '').trim();
+      if(loc && DATA.regionMap[loc] ) c = DATA.regionMap[loc];
+      else if(loc.includes('_')) c = loc.split('_',1)[0];
+      else if(/^[A-Za-z]{2}/.test(loc)) c = loc.slice(0,2);
+    }
+    c = (c||'Unknown').toUpperCase();
+    if(c==='DE') c='IE'; if(c==='SCHJP') c='JP';
+    return c;
+  }
+
+  function processRaw(rows){
+    if(!rows?.length) throw new Error('No rows to process');
+    DATA.raw = rows.slice();
+    const cols = Object.keys(rows[0]||{});
+    const colModel = pickCol(cols, ['Model Grade','Model','SKU','Short SKU','Product Name']);
+    const colGrade = pickCol(cols, ['Grade','Model Grade Only','Condition']);
+    const colColor = pickCol(cols, ['Color','Colour']);
+    const colQty   = pickCol(cols, ['Qty_Available','Qty','Quantity','Available Qty','Qty Available']);
+    const colQtyPre = pickCol(cols, ['Qty_Preorder','Qty Preorder','Preorder Qty','QtyPreorder','Qty Pre','Preorder']);
+    const colCountry = pickCol(cols, ['Country','Region']);
+    const colLocation = pickCol(cols, ['Location','Location Code','Warehouse','Warehouse Location','Location_Code']);
+    const colFamily = pickCol(cols, ['Product Family','Family','Category']);
+    const colCategory = pickCol(cols, ['Category','Product Category','Family','Product Family']);
+    const colCapacity = pickCol(cols, ['Capacity','Storage','Storage Capacity','Memory','ROM','Capacity (GB)']);
+    // Detect variant column for SIM classification
+    const colVariant = pickCol(cols, ['Variant','Variant Code','VariantId','VariantID','Variant Model','Variant Number']);
+    const colSku = pickCol(cols, ['SKU','Sku','Short SKU','Item Code','SKU Code']);
+    const colNetwork = pickCol(cols, ['Network','Network Code','Model Network','Network Carrier','Carrier']);
+
+    const out=[];
+    // Prepare a map to aggregate quantities; also store details for order exports
+    const map=new Map();
+
+    // Compute the set of pricing SKU prefixes that appear in this dataset. We
+    // extract the first five segments of the SKU (or fewer if shorter) as an
+    // approximation of the pricing_sku. This set will be used when loading a
+    // large name mapping file to limit processing to only relevant entries.
+    if(colSku){
+      NEEDED_PRICING_SKUS = new Set();
+      for(const r of rows){
+        const skuVal = r[colSku];
+        if(!skuVal) continue;
+        const skuStr = String(skuVal).trim();
+        if(!skuStr) continue;
+        const parts = skuStr.split('-');
+        const prefix = parts.length >= 5 ? parts.slice(0,5).join('-') : parts.join('-');
+        // Store prefix in upper‑case for case‑insensitive comparison
+        NEEDED_PRICING_SKUS.add(prefix.toUpperCase());
+      }
+    }
+    for(const r of rows){
+      // Keep only target devices (iPad and Wearables). Skip others (smartphones/accessories).
+      if(!isTargetDevice(r, colFamily, colModel, colCategory)) continue;
+      const qtyAvail = normalizeQty(r[colQty]);
+      const qtyPre = colQtyPre ? normalizeQty(r[colQtyPre]) : 0;
+      // Skip row if no quantity available or preorder combined quantity
+      if(qtyAvail + qtyPre <= 0) continue;
+      const country = deriveCountryFromMapping(r,colCountry,colLocation);
+      const color = (colColor? String(r[colColor]||'').trim(): '') || 'Unknown';
+      const header = buildHeader(r,colModel,colGrade,colCapacity);
+      const category = (colCategory? String(r[colCategory]||'').trim(): '') || 'Unknown';
+      // In this tool we do not classify SIM; set a constant placeholder
+      const sim = 'N/A';
+      // Capture SKU and location code
+      const sku = colSku ? String(r[colSku]||'').trim() : '';
+      const loc = colLocation ? String(r[colLocation]||'').trim() : '';
+      // Capture network for locked filtering
+      const network = colNetwork ? String(r[colNetwork]||'').trim() : '';
+      // Capture variant string for validation and export
+      const variant = colVariant ? String(r[colVariant]||'').trim() : '';
+      // Derive grade: prefer dataset Grade column, else from SKU suffix
+      let gradeCode = '';
+      if(colGrade){
+        const gval = r[colGrade];
+        if(gval != null){
+          const gStr = String(gval).trim().toUpperCase();
+          if(gStr) gradeCode = gStr;
+        }
+      }
+      if(!gradeCode){
+        gradeCode = getGradeFromSku(sku) || '';
+      }
+      // Record a row for potential further use (include grade)
+      out.push({Country:country, Sim:sim, Header:header, Color:color, Category:category, Grade:gradeCode, QtyAvail:qtyAvail, QtyPre:qtyPre, Sku:sku, Loc:loc, Network:network, Variant:variant});
+      // Aggregate by Country, Sim, Header, Color, Category
+      const key=country+'\u0001'+sim+'\u0001'+header+'\u0001'+color+'\u0001'+category;
+      if(!map.has(key)){
+        map.set(key,{Country:country, Sim:sim, Header:header, Color:color, Category:category, Grade:gradeCode, QtyAvail:qtyAvail, QtyPre:qtyPre, Sku:sku, Loc:loc, Network:network, MaxQtyAvail:qtyAvail, rows:[{Sku:sku, Loc:loc, QtyAvail:qtyAvail, QtyPre:qtyPre, Variant:variant, Network:network, Grade:gradeCode}]});
+      } else {
+        const agg=map.get(key);
+        agg.QtyAvail += qtyAvail;
+        agg.QtyPre += qtyPre;
+        // Update representative SKU/Loc if this row has more available quantity
+        if(qtyAvail > agg.MaxQtyAvail){
+          agg.Sku = sku;
+          agg.Loc = loc;
+          agg.Network = network;
+          agg.MaxQtyAvail = qtyAvail;
+        }
+        // Append underlying row details
+        agg.rows.push({Sku:sku, Loc:loc, QtyAvail:qtyAvail, QtyPre:qtyPre, Variant:variant, Network:network, Grade:gradeCode});
+      }
+    }
+    // Build aggregated array
+    const agg=[];
+    AGG_MAP={};
+    for(const [key,val] of map){
+      // Total quantity includes preorder; we keep both separately
+      const totalQty = val.QtyAvail + val.QtyPre;
+      const row={Country:val.Country, Sim:val.Sim, Header:val.Header, Color:val.Color, Category:val.Category, Grade:val.Grade, QtyAvail:val.QtyAvail, QtyPre:val.QtyPre, Qty:totalQty, Sku:val.Sku, Loc:val.Loc, Network:val.Network, Key:key};
+      agg.push(row);
+      // Compute synonymsLower: include base header and any mapped synonyms
+      let synonymsLowerSet = new Set();
+      // Always include base header (without grade)
+      const baseHeader = val.Header.replace(GRADE_SUFFIX_RE,'').trim();
+      if(baseHeader) synonymsLowerSet.add(baseHeader.toLowerCase());
+      // Include synonyms from name mapping for this SKU
+      const syns = getSynonymsFromSku(val.Sku);
+      if(syns){
+        for(const syn of syns){
+          const sTrim = String(syn||'').trim();
+          if(!sTrim) continue;
+          const cleanSyn = sTrim.replace(GRADE_SUFFIX_RE,'').trim().toLowerCase();
+          if(cleanSyn) synonymsLowerSet.add(cleanSyn);
+        }
+      }
+      // Store details for export: include list of underlying rows and synonymsLowerSet
+      AGG_MAP[key]={
+        rows: val.rows.slice(),
+        Color: val.Color,
+        Header: val.Header,
+        Country: val.Country,
+        Sim: val.Sim,
+        Category: val.Category,
+        Grade: val.Grade,
+        QtyAvail: val.QtyAvail,
+        QtyPre: val.QtyPre,
+        synonymsLower: synonymsLowerSet
+      };
+    }
+    // Sort by country, sim, header, colour, category for stable order
+    agg.sort((a,b)=> a.Country.localeCompare(b.Country)
+                    || a.Sim.localeCompare(b.Sim)
+                    || a.Header.localeCompare(b.Header)
+                    || a.Color.localeCompare(b.Color)
+                    || a.Category.localeCompare(b.Category));
+    // Build meta lists for filters
+    const countries=[...new Set(agg.map(r=>r.Country))].sort();
+    const sims=[...new Set(agg.map(r=>r.Sim))].sort();
+    const grades=[...new Set(agg.map(r=> ((r.Grade||'').toUpperCase()) ))].filter(Boolean).sort();
+    const categories=[...new Set(agg.map(r=> r.Category))].sort();
+    DATA.rows=agg;
+    DATA.cols=['Country','Sim','Header','Color','Qty','Category','Sku','Loc','QtyAvail','QtyPre','Network','Key'];
+    DATA.mapping={colModel,colGrade,colColor,colQty,colQtyPre,colCountry,colLocation,colFamily,colCategory,colCapacity,colSku,colNetwork,colVariant};
+    DATA.meta={ name:($('#file')?.files?.[0]?.name)||DATA.meta?.name||'dataset', hash:String(agg.length)+'-'+String(Date.now()), ts:Date.now(), countries, grades, categories, sims };
+    populateFilters(false);
+  }
+
+  function populateFilters(isSnapshot){
+    $('#regionMapBox').value = $('#regionMapBox').value || DEFAULT_REGION_MAP_TEXT;
+    // Regions
+    const countries = DATA.meta.countries?.length? DATA.meta.countries : [...new Set(DATA.rows.map(r=>r.Country))].sort();
+    buildRegionChips(countries);
+    // Grades
+    let grades;
+    if(DATA.meta.grades?.length){
+      grades = DATA.meta.grades;
+    } else {
+      // Prefer Grade property stored on each row (if present)
+      const derived = new Set();
+      for(const r of DATA.rows){
+        if(r.Grade){
+          const g = String(r.Grade).trim().toUpperCase();
+          if(g) derived.add(g);
+        }
+      }
+      if(derived.size){
+        grades = Array.from(derived).filter(Boolean).sort();
+      } else {
+        // Fallback: derive grade by taking last segment of Header
+        grades = [...new Set(DATA.rows.map(r=> {
+          const seg = (r.Header || '').split('-').slice(-1)[0] || '';
+          return seg.toUpperCase();
+        }))].filter(Boolean).sort();
+      }
+    }
+    buildGradeChips(grades);
+    // Categories
+    const categories = DATA.meta.categories?.length? DATA.meta.categories : [...new Set(DATA.rows.map(r=> r.Category))].sort();
+    buildCategoryChips(categories);
+    // In the iPad/Wearables tool we do not show SIM, preorder or locked filters. Always include preorder and allow all networks.
+    // Suggestions for model tokens
+    buildModelSuggestions();
+  }
+
+  function reprocessWithMapping(){ if(!DATA.raw?.length) return; processRaw(DATA.raw); renderTable(); }
+
+  // ===== Chips (Region / Grade / Category / SIM) =====
+  // The selected sets are declared earlier with their own defaults.
+
+  function makeChips(boxSel, values, selectedSet, defaults=[]) {
+    const box=$(boxSel); box.innerHTML='';
+    const all=document.createElement('div'); all.className='chipbtn' + (selectedSet.size===0? ' active':''); all.textContent='All'; all.dataset.val=''; box.appendChild(all);
+    values.forEach(v=>{ const el=document.createElement('div'); el.className='chipbtn' + (selectedSet.has(v)? ' active':''); el.textContent=v; el.dataset.val=v; box.appendChild(el); });
+    box.onclick=(e)=>{
+      const btn=e.target.closest('.chipbtn'); if(!btn) return; const val=btn.dataset.val;
+      if(val===''){ selectedSet.clear(); } else { if(selectedSet.has(val)) selectedSet.delete(val); else selectedSet.add(val); }
+      updateChipHighlights(boxSel, selectedSet);
+      renderTable();
+    };
+    // Apply defaults if provided and no current selection
+    if(selectedSet.size===0 && defaults.length){ defaults.forEach(d=>{ if(values.some(v=>v.toLowerCase()===d.toLowerCase())) selectedSet.add(values.find(v=>v.toLowerCase()===d.toLowerCase())); }); updateChipHighlights(boxSel, selectedSet); }
+  }
+  function updateChipHighlights(boxSel, set){ const chips=$$(boxSel+' .chipbtn'); const none=set.size===0; chips.forEach(ch=>{ const val=ch.dataset.val; if(val==='') ch.classList.toggle('active', none); else ch.classList.toggle('active', set.has(val)); }); }
+
+  function buildRegionChips(countries){ makeChips('#regionChips', countries, SELECTED_COUNTRIES); }
+  function buildGradeChips(grades){ makeChips('#gradeChips', grades, SELECTED_GRADES); }
+  function buildCategoryChips(categories){
+    // Default to Smartphones if available
+    const defaults = categories.some(c=>c.toLowerCase()==='smartphones')? ['Smartphones'] : [];
+    makeChips('#categoryChips', categories, SELECTED_CATEGORIES, defaults);
+  }
+
+  // Build SIM chips
+  function buildSimChips(sims){
+    // SIM chips have no defaults; all selected means no filtering
+    makeChips('#simChips', sims, SELECTED_SIMS);
+  }
+
+  // Build preorder chips (binary include/exclude). When exclude (default), preorder quantities are not counted.
+  function buildPreorderChips(){
+    const box=$('#preorderChips'); if(!box) return;
+    box.innerHTML='';
+    const include=document.createElement('div'); include.className='chipbtn' + (PREORDER_INCLUDE? ' active':''); include.textContent='Include'; include.dataset.val='include';
+    const exclude=document.createElement('div'); exclude.className='chipbtn' + (!PREORDER_INCLUDE? ' active':''); exclude.textContent='Exclude'; exclude.dataset.val='exclude';
+    box.appendChild(include); box.appendChild(exclude);
+    box.onclick=(e)=>{
+      const btn=e.target.closest('.chipbtn'); if(!btn) return;
+      PREORDER_INCLUDE = (btn.dataset.val==='include');
+      buildPreorderChips();
+      renderTable();
+    };
+  }
+
+  // Build locked unit chips (binary include/exclude). When exclude (default), certain networks are filtered out.
+  function buildLockedChips(){
+    const box=$('#lockedChips'); if(!box) return;
+    box.innerHTML='';
+    const include=document.createElement('div'); include.className='chipbtn' + (!LOCKED_EXCLUDE? ' active':''); include.textContent='Include'; include.dataset.val='include';
+    const exclude=document.createElement('div'); exclude.className='chipbtn' + (LOCKED_EXCLUDE? ' active':''); exclude.textContent='Exclude'; exclude.dataset.val='exclude';
+    box.appendChild(include); box.appendChild(exclude);
+    box.onclick=(e)=>{
+      const btn=e.target.closest('.chipbtn'); if(!btn) return;
+      LOCKED_EXCLUDE = (btn.dataset.val==='exclude');
+      buildLockedChips();
+      renderTable();
+    };
+  }
+  // ===== Tokenized model OR-filter (gradeless) =====
+  // Reset MODEL_TOKENS to an empty array before starting a new parse. The variables
+  // MODEL_TOKENS, GRADE_SUFFIX_RE and PURE_GRADE_RE are declared near the top
+  // of the script to avoid temporal dead‑zone errors during snapshot initialisation.
+  MODEL_TOKENS = [];
+  function sanitizeToken(val){
+    let v = (val||'').trim();
+    v = v.replace(GRADE_SUFFIX_RE,''); // strip trailing -GRADE
+    v = v.replace(/\s{2,}/g,' ');
+    return v;
+  }
+  function addToken(val){
+    const clean = sanitizeToken(val);
+    // Do not allow empty or too-short tokens
+    const plain = clean.replace(/[^a-z0-9 ]/gi,'').trim();
+    if(!plain || plain.length < 2){ showTokenError('Enter a more specific model.'); return; }
+    // Do not allow pure grade tokens (e.g. W, WP)
+    if(PURE_GRADE_RE.test(plain)){ showTokenError('Model token cannot be just a grade.'); return; }
+    // Canonicalise token using synonym mapping. If the token matches a known synonym,
+    // replace it with the canonical English name. Otherwise use the cleaned value.
+    const canon = SYNONYM_MAP[clean.toLowerCase()] || clean;
+    const key = canon.toLowerCase();
+    // Validate against suggestions if available
+    if(MODEL_SUGG_LOWER.length){
+      const match = MODEL_SUGG_LOWER.some(s => s.includes(key));
+      if(!match){ showTokenError('No matching model — pick from suggestions or type more.'); return; }
+    }
+    if(!MODEL_TOKENS.includes(key)){
+      MODEL_TOKENS.push(key);
+      renderTokens(); renderTable();
+    }
+    clearTokenError();
+  }
+  function removeToken(val){
+    MODEL_TOKENS = MODEL_TOKENS.filter(t=>t!==val.toLowerCase());
+    renderTokens(); renderTable();
+    clearTokenError();
+  }
+  function renderTokens(){ const wrap=$('#tokenWrap'); wrap.innerHTML=''; MODEL_TOKENS.forEach(t=>{ const el=document.createElement('div'); el.className='token'; el.innerHTML=`<span>${t}</span><span class="x" title="Remove">✕</span>`; el.querySelector('.x').addEventListener('click',()=>removeToken(t)); wrap.appendChild(el); }); }
+  // Reset MODEL_SUGG before rebuilding suggestions. Declaration of MODEL_SUGG is at the top of the script.
+  MODEL_SUGG = [];
+  function buildModelSuggestions(){
+    const seen = new Map();
+    // Build suggestion list from canonical names and synonyms. Include the base header names
+    // (without grade) and any synonyms loaded from the name mapping. Use a Map to
+    // preserve the first casing encountered for each lower-case string.
+    for(const r of DATA.rows){
+      // Base model from header (without grade)
+      const base = r.Header.replace(GRADE_SUFFIX_RE,'').trim();
+      const lowerBase = base.toLowerCase();
+      if(base && !seen.has(lowerBase)) seen.set(lowerBase, base);
+      // Add synonyms for this SKU, if available
+      const syns = getSynonymsFromSku(r.Sku);
+      if(syns){
+        for(const syn of syns){
+          const sTrim = String(syn||'').trim();
+          if(!sTrim) continue;
+          const lowerSyn = sTrim.toLowerCase();
+          // Remove grade suffix from synonym if present (unlikely)
+          const cleanSyn = sTrim.replace(GRADE_SUFFIX_RE,'').trim();
+          const lowerClean = cleanSyn.toLowerCase();
+          if(cleanSyn && !seen.has(lowerClean)) seen.set(lowerClean, cleanSyn);
+        }
+      }
+    }
+    MODEL_SUGG = Array.from(seen.values()).sort((a,b)=> a.localeCompare(b));
+    MODEL_SUGG_LOWER = MODEL_SUGG.map(s => s.toLowerCase());
+  }
+  (function wireModelInput(){
+    const input=$('#modelInput'); const list=$('#sugglist');
+    function openList(items){
+      list.innerHTML='';
+      items.slice(0,150).forEach(s=>{
+        const it=document.createElement('div'); it.className='suggitem'; it.textContent=s;
+        it.addEventListener('click',()=>{
+          addToken(s);
+          // Only clear the input if no error is shown
+          const err = document.getElementById('tokenError');
+          if(!err || err.style.display==='none'){
+            input.value=''; list.classList.remove('open');
+          }
+        });
+        list.appendChild(it);
+      });
+      if(items.length) list.classList.add('open'); else list.classList.remove('open');
+    }
+    input.addEventListener('input',()=>{
+      const q=input.value.trim().toLowerCase();
+      clearTokenError();
+      if(!q){ list.classList.remove('open'); return; }
+      openList(MODEL_SUGG.filter(s=> s.toLowerCase().includes(q)));
+    });
+    input.addEventListener('keydown',(e)=>{
+      if(e.key==='Enter' || e.key===','){
+        e.preventDefault();
+        const v=input.value.trim();
+        if(v){
+          addToken(v);
+          const err = document.getElementById('tokenError');
+          if(!err || err.style.display==='none'){
+            input.value=''; list.classList.remove('open');
+          }
+        }
+      }
+    });
+    document.addEventListener('click',(e)=>{ if(!e.target.closest('.sugg')) list.classList.remove('open'); });
+  })();
+
+  function getActiveFilters(){
+    const q=$('#q').value.trim().toLowerCase();
+    const selectedCountries = Array.from(SELECTED_COUNTRIES);
+    const selectedGrades = Array.from(SELECTED_GRADES);
+    const selectedCategories = Array.from(SELECTED_CATEGORIES);
+    // SIM selection is not used in this tool; treat as empty
+    const selectedSims = [];
+    return {q,selectedCountries,selectedGrades,selectedCategories,selectedSims,modelTokens:MODEL_TOKENS.slice()};
+  }
+
+  function applyFilters(rows){
+    const {q,selectedCountries,selectedGrades,selectedCategories,selectedSims,modelTokens}=getActiveFilters();
+    return rows
+      .filter(r=>{
+        // Apply batch filter first: if a batch set is defined, exclude rows not matching any (Country, Header) pair
+        if(BATCH_SET && BATCH_SET.size>0){
+          const pairKey = String(r.Country||'').toUpperCase() + '\t' + String(r.Header||'').toLowerCase();
+          if(!BATCH_SET.has(pairKey)) return false;
+        }
+        // Region/country filter
+        if(selectedCountries.length && !selectedCountries.includes(r.Country)) return false;
+        // Grade filter
+        if(selectedGrades.length){
+          const g = (r.Grade || '').toUpperCase();
+          if(!selectedGrades.includes(g)) return false;
+        }
+        // Category filter
+        if(selectedCategories.length && !selectedCategories.includes(r.Category)) return false;
+        // SIM filter
+        if(selectedSims.length && !selectedSims.includes(r.Sim)) return false;
+        // Locked network filter
+        if(LOCKED_EXCLUDE && isDontIncludeNetwork(r.Network)) return false;
+        // Model tokens filter (base model or synonyms, ignoring grade)
+        if(modelTokens.length){
+          // Attempt to match token against synonymsLower set stored in AGG_MAP; fallback to header base
+          const syns = AGG_MAP[r.Key] ? AGG_MAP[r.Key].synonymsLower : null;
+          if(syns && syns.size){
+            let match = false;
+            for(const t of modelTokens){ if(syns.has(t)){ match = true; break; } }
+            if(!match) return false;
+          } else {
+            const base = r.Header.replace(GRADE_SUFFIX_RE,'').toLowerCase();
+            let match = false;
+            for(const t of modelTokens){ if(base.includes(t)){ match = true; break; } }
+            if(!match) return false;
+          }
+        }
+        // Text search q over header or colour
+        if(q){ const h=r.Header.toLowerCase(); const c=r.Color.toLowerCase(); if(!(h.includes(q) || c.includes(q))) return false; }
+        return true;
+      })
+      .map(r=>{
+        // Compute effective quantity based on preorder include/exclude
+        const qtyEff = r.QtyAvail + (PREORDER_INCLUDE? r.QtyPre : 0);
+        // Copy properties into a new object to avoid mutating original
+        return Object.assign({}, r, { Qty: qtyEff });
+      })
+      .filter(r=> r.Qty > 0);
+  }
+
+  function renderTable(){
+    const rows=applyFilters(DATA.rows);
+    $('#rowsCount').textContent=rows.length.toLocaleString();
+    // Build nested structure: Country -> Header -> array of rows
+    const nest=new Map();
+    for(const r of rows){
+      const k1=r.Country, k2=r.Header;
+      if(!nest.has(k1)) nest.set(k1,new Map());
+      const m2=nest.get(k1);
+      if(!m2.has(k2)) m2.set(k2,[]);
+      m2.get(k2).push(r);
+    }
+    let html='';
+    const countries=[...nest.keys()].sort();
+    for(const country of countries){
+      html += `<div class="section"><div class="chip">Country: <strong style="margin-left:6px">${country}</strong></div>`;
+      html += `<table><thead><tr><th>Item</th><th class="right">Qty</th>`;
+      // Always include order and offer columns along with an action column, even in summary mode
+      html += `<th class="right">Order Qty</th><th class="right">Offer</th><th></th>`;
+      html += `</tr></thead><tbody>`;
+      let grand=0;
+      const headers=[...nest.get(country).keys()].sort();
+      for(const hdr of headers){
+        const rowsForHdr = nest.get(country).get(hdr);
+        // Compute subtotal across colours
+        let subtotal=0;
+        for(const row of rowsForHdr){ subtotal += row.Qty; }
+        grand += subtotal;
+        // Model header row
+        html += `<tr><td><strong>${hdr}</strong></td><td class="right"><strong>${fmtInt(subtotal)}</strong></td>`;
+        // Determine aggregated offer: if all underlying colour rows have the same offer, show it; otherwise leave blank
+        let aggregatedOffer = '';
+        const offerVals = [];
+        for(const row of rowsForHdr){
+          const ent = ORDER_ENTRIES[row.Key];
+          if(ent && ent.offer != null && String(ent.offer).trim() !== ''){
+            offerVals.push(String(ent.offer).trim());
+          }
+        }
+        if(offerVals.length > 0 && offerVals.every(v => v === offerVals[0])){
+          aggregatedOffer = offerVals[0];
+        }
+        // For summary mode we still allow order quantity and offer input on header row. The order quantity input will set the quantity on
+        // the aggregated row (colour breakdown hidden) and the offer applies to all underlying colours.
+        // Determine aggregated order quantity: if all underlying colour rows have the same order qty, show it; otherwise leave blank
+        let aggregatedQty = '';
+        const qtyVals = [];
+        for(const row of rowsForHdr){
+          const ent = ORDER_ENTRIES[row.Key];
+          if(ent && ent.qty != null && ent.qty !== ''){
+            qtyVals.push(String(ent.qty).trim());
+          }
+        }
+        if(qtyVals.length > 0 && qtyVals.every(v => v === qtyVals[0])){
+          aggregatedQty = qtyVals[0];
+        }
+        html += `<td class="right"><input type="number" class="orderQtyHeader" data-country="${country}" data-hdr="${hdr}" min="0" max="${subtotal}" value="${aggregatedQty}" style="width:80px"></td>`;
+        html += `<td class="right"><input type="number" class="orderOfferHeader" data-country="${country}" data-hdr="${hdr}" step="0.01" value="${aggregatedOffer}" style="width:80px"></td>`;
+        html += `<td class="right"><button type="button" class="takeAllHeader" data-country="${country}" data-hdr="${hdr}" style="padding:4px 8px;font-size:12px">All</button></td>`;
+        html += `</tr>`;
+        if(!SHOW_SUMMARY_ONLY){
+          // Colour-level rows are not shown in this tool. The conditional is retained for clarity.
+          const sortedRows = rowsForHdr.slice().sort((a,b)=> a.Color.localeCompare(b.Color));
+          for(const row of sortedRows){
+            const qty = row.Qty;
+            const key = row.Key;
+            const entry = ORDER_ENTRIES[key] || {};
+            const orderQty = entry.qty != null ? entry.qty : '';
+            const offerVal = entry.offer != null ? entry.offer : '';
+            html += `<tr>`;
+            html += `<td class="indent">${row.Color}</td>`;
+            html += `<td class="right">${fmtInt(qty)}</td>`;
+            html += `<td class="right"><input type="number" class="orderQty" data-key="${key}" min="0" max="${qty}" value="${orderQty}" style="width:80px"></td>`;
+            html += `<td class="right"><input type="number" class="orderOffer" data-key="${key}" min="0" step="0.01" value="${offerVal}" style="width:80px"></td>`;
+            html += `<td class="right"><button type="button" class="takeAll" data-key="${key}" style="padding:4px 8px;font-size:12px">All</button></td>`;
+            html += `</tr>`;
+          }
+          // Spacer row between models (colspan across all columns)
+          html += `<tr><td colspan="5"></td></tr>`;
+        }
+      }
+      // Total row
+      html += `<tr class="total"><td>Total</td><td class="right">${fmtInt(grand)}</td><td></td><td></td><td></td></tr>`;
+      html += `</tbody></table></div>`;
+    }
+    $('#table').innerHTML = html || '<div class="muted">No rows after filters.</div>';
+    // After rendering, attach event handlers for order inputs and take all buttons
+    attachOrderHandlers();
+  }
+
+  // Attach event handlers for order quantity/offer inputs and take‑all buttons
+  function attachOrderHandlers(){
+    // Clear existing ORDER_ENTRIES keys for rows that no longer exist (to avoid stale entries)
+    for(const k in ORDER_ENTRIES){ if(!AGG_MAP[k]) delete ORDER_ENTRIES[k]; }
+    // Attach input handlers
+    document.querySelectorAll('input.orderQty').forEach(inp=>{
+      inp.oninput = (e)=>{
+        const key = e.target.dataset.key;
+        let qty = parseInt(e.target.value,10);
+        if(!isFinite(qty) || qty<0) qty = 0;
+        if(!ORDER_ENTRIES[key]) ORDER_ENTRIES[key] = {qty:0, offer:''};
+        ORDER_ENTRIES[key].qty = qty;
+        updateOrderButtons();
+      };
+    });
+    document.querySelectorAll('input.orderOffer').forEach(inp=>{
+      inp.oninput = (e)=>{
+        const key = e.target.dataset.key;
+        const offer = e.target.value;
+        if(!ORDER_ENTRIES[key]) ORDER_ENTRIES[key] = {qty:0, offer:''};
+        ORDER_ENTRIES[key].offer = offer;
+        updateOrderButtons();
+      };
+    });
+    document.querySelectorAll('button.takeAll').forEach(btn=>{
+      btn.onclick = (e)=>{
+        const key = e.target.dataset.key;
+        const row = AGG_MAP[key]; if(!row) return;
+        // Effective qty (respecting preorder include/exclude)
+        const qtyEff = row.QtyAvail + (PREORDER_INCLUDE? row.QtyPre : 0);
+        const inp = document.querySelector(`input.orderQty[data-key="${key}"]`);
+        if(inp){ inp.value = qtyEff; if(!ORDER_ENTRIES[key]) ORDER_ENTRIES[key] = {qty:0, offer:''}; ORDER_ENTRIES[key].qty = qtyEff; updateOrderButtons(); }
+      };
+    });
+    // Update button enabled state
+    updateOrderButtons();
+
+    // ----- New handlers for model-grade header offer and All buttons -----
+    // When user edits the offer on a model-grade header row, propagate to all underlying colour rows
+    document.querySelectorAll('input.orderOfferHeader').forEach(inp=>{
+      inp.oninput = (e)=>{
+        const country = e.target.dataset.country;
+        const hdr = e.target.dataset.hdr;
+        const val = e.target.value;
+        // Update offers for all aggregated rows that match this country and header
+        for(const key in AGG_MAP){
+          const agg = AGG_MAP[key];
+          if(agg && agg.Country === country && agg.Header === hdr){
+            if(!ORDER_ENTRIES[key]) ORDER_ENTRIES[key] = {qty:0, offer:''};
+            ORDER_ENTRIES[key].offer = val;
+          }
+        }
+        // Re-render table asynchronously to reflect changes
+        setTimeout(()=>{ renderTable(); },0);
+      };
+    });
+    // When user edits the quantity on a model-grade header row, propagate the value to all underlying colour rows.
+    document.querySelectorAll('input.orderQtyHeader').forEach(inp=>{
+      inp.oninput = (e)=>{
+        const country = e.target.dataset.country;
+        const hdr = e.target.dataset.hdr;
+        let qtyVal = parseInt(e.target.value, 10);
+        if(!isFinite(qtyVal) || qtyVal < 0) qtyVal = 0;
+        for(const key in AGG_MAP){
+          const agg = AGG_MAP[key];
+          if(agg && agg.Country === country && agg.Header === hdr){
+            // Limit quantity to available quantity for this aggregated key
+            const qtyEff = agg.QtyAvail + (PREORDER_INCLUDE ? agg.QtyPre : 0);
+            const setQty = qtyVal > qtyEff ? qtyEff : qtyVal;
+            if(!ORDER_ENTRIES[key]) ORDER_ENTRIES[key] = {qty:0, offer:''};
+            ORDER_ENTRIES[key].qty = setQty;
+          }
+        }
+        // Re-render to update aggregated quantity display
+        setTimeout(()=>{ renderTable(); },0);
+      };
+    });
+    // When user clicks the All button on a model-grade header row, set all colour rows to max and propagate offer
+    document.querySelectorAll('button.takeAllHeader').forEach(btn=>{
+      btn.onclick = (e)=>{
+        const country = e.target.dataset.country;
+        const hdr = e.target.dataset.hdr;
+        // Determine offer from the corresponding header input
+        const priceInput = document.querySelector(`input.orderOfferHeader[data-country="${country}"][data-hdr="${hdr}"]`);
+        const priceVal = priceInput ? priceInput.value : '';
+        for(const key in AGG_MAP){
+          const agg = AGG_MAP[key];
+          if(agg && agg.Country === country && agg.Header === hdr){
+            const qtyEff = agg.QtyAvail + (PREORDER_INCLUDE ? agg.QtyPre : 0);
+            if(!ORDER_ENTRIES[key]) ORDER_ENTRIES[key] = {qty:0, offer:''};
+            ORDER_ENTRIES[key].qty = qtyEff;
+            ORDER_ENTRIES[key].offer = priceVal;
+          }
+        }
+        // Re-render to update the inputs
+        setTimeout(()=>{ renderTable(); },0);
+      };
+    });
+  }
+
+  function updateOrderButtons(){
+    const btnOrder = document.getElementById('btnExportOrderCsv');
+    const btnVal   = document.getElementById('btnExportValidationCsv');
+    if(!btnOrder || !btnVal){ return; }
+    const hasOrders = Object.values(ORDER_ENTRIES).some(ent => ent && ent.qty && ent.qty > 0);
+    btnOrder.disabled = !hasOrders;
+    btnVal.disabled   = !hasOrders;
+  }
+
+  function exportOrderCsv(){
+    const lines=[];
+    lines.push(['SKU','Location Code','Quantity','Offer']);
+    for(const key in ORDER_ENTRIES){
+      const ent=ORDER_ENTRIES[key];
+      if(!ent || !ent.qty || ent.qty<=0) continue;
+      let qtyNeeded = parseInt(ent.qty,10);
+      if(!qtyNeeded || qtyNeeded<=0) continue;
+      const offer=(ent.offer!=null && String(ent.offer).trim()!=='')? ent.offer:'';
+      const agg = AGG_MAP[key];
+      if(!agg || !agg.rows) continue;
+      // Allocate quantity across underlying rows
+      for(const it of agg.rows){
+        const qEff = it.QtyAvail + (PREORDER_INCLUDE ? it.QtyPre : 0);
+        if(qEff <= 0) continue;
+        const qTake = qtyNeeded >= qEff ? qEff : qtyNeeded;
+        if(qTake > 0){
+          lines.push([it.Sku || '', it.Loc || '', qTake, offer]);
+          qtyNeeded -= qTake;
+        }
+        if(qtyNeeded <= 0) break;
+      }
+      // If still leftover quantity, push a row with representative sku/loc for leftover
+      if(qtyNeeded > 0){
+        const first = agg.rows[0];
+        lines.push([first.Sku || '', first.Loc || '', qtyNeeded, offer]);
+      }
+    }
+    if(lines.length<=1){ alert('No order entries.'); return; }
+    const csv = lines.map(l=> l.map(v => String(v).replace(/"/g,'""')).map(v=>`"${v}"`).join(',')).join('\r\n');
+    const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
+    saveAs(blob, 'order.csv');
+  }
+
+  function exportValidationCsv(){
+    const lines=[];
+    // Include Variant column in validation CSV
+    lines.push(['SKU','Location Code','Color','Model Grade','Variant','Quantity','Offer']);
+    for(const key in ORDER_ENTRIES){
+      const ent = ORDER_ENTRIES[key];
+      if(!ent || !ent.qty || ent.qty <= 0) continue;
+      let qtyNeeded = parseInt(ent.qty, 10);
+      if(!qtyNeeded || qtyNeeded <= 0) continue;
+      const offer = (ent.offer != null && String(ent.offer).trim() !== '') ? ent.offer : '';
+      const agg = AGG_MAP[key];
+      if(!agg || !agg.rows) continue;
+      // Allocate quantity across underlying rows for validation
+      for(const it of agg.rows){
+        const qEff = it.QtyAvail + (PREORDER_INCLUDE ? it.QtyPre : 0);
+        if(qEff <= 0) continue;
+        const qTake = qtyNeeded >= qEff ? qEff : qtyNeeded;
+        if(qTake > 0){
+          lines.push([
+            it.Sku || '',
+            it.Loc || '',
+            agg.Color || '',
+            agg.Header || '',
+            it.Variant || '',
+            qTake,
+            offer
+          ]);
+          qtyNeeded -= qTake;
+        }
+        if(qtyNeeded <= 0) break;
+      }
+      // If still leftover, use first row's variant as fallback
+      if(qtyNeeded > 0){
+        const first = agg.rows[0];
+        lines.push([
+          first.Sku || '',
+          first.Loc || '',
+          agg.Color || '',
+          agg.Header || '',
+          first.Variant || '',
+          qtyNeeded,
+          offer
+        ]);
+      }
+    }
+    if(lines.length <= 1){ alert('No order entries.'); return; }
+    const csv = lines.map(l => l.map(v => String(v).replace(/"/g,'""')).map(v => `"${v}"`).join(',')).join('\r\n');
+    const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
+    saveAs(blob, 'order_validation.csv');
+  }
+
+  // ===== Excel export with ExcelJS (borders + styles) =====
+  async function exportExcel(filteredOnly=false){
+    const rows = filteredOnly? applyFilters(DATA.rows) : DATA.rows;
+    const byCountry=new Map();
+    for(const r of rows){ if(!byCountry.has(r.Country)) byCountry.set(r.Country,new Map()); const m=byCountry.get(r.Country); if(!m.has(r.Header)) m.set(r.Header,new Map()); const n=m.get(r.Header); n.set(r.Color,(n.get(r.Color)||0)+r.Qty); }
+
+    const workbook = new ExcelJS.Workbook();
+    const countries = [...byCountry.keys()].sort(); if(countries.length===0){ alert('Nothing to export.'); return; }
+
+    for(const country of countries){
+      const ws = workbook.addWorksheet(String(country).slice(0,31), {views:[{state:'frozen', ySplit:1}]});
+      ws.columns = [{header:'Item', key:'item', width:60}, {header:'Qty', key:'qty', width:12}];
+      const borderThin = {top:{style:'thin'}, left:{style:'thin'}, bottom:{style:'thin'}, right:{style:'thin'}};
+
+      ws.getRow(1).font = {bold:true};
+      ws.getRow(1).alignment = {vertical:'middle'};
+
+      let grand=0; let r=2;
+      const models=[...byCountry.get(country).keys()].sort();
+      for(const hdr of models){
+        const colors = byCountry.get(country).get(hdr);
+        let subtotal=0; for(const q of colors.values()) subtotal+=q; grand+=subtotal;
+        ws.getCell(r,1).value = hdr; ws.getCell(r,1).font = {bold:true};
+        ws.getCell(r,2).value = subtotal; ws.getCell(r,2).numFmt = '#,##0'; ws.getCell(r,2).alignment = {horizontal:'right'};
+        ws.getCell(r,1).border = borderThin; ws.getCell(r,2).border = borderThin;
+        r++;
+        if(!SHOW_SUMMARY_ONLY){
+          const sortedColors = [...colors.entries()].sort((a,b)=> a[0].localeCompare(b[0]));
+          for(const [color,qty] of sortedColors){
+            ws.getCell(r,1).value = color; ws.getCell(r,1).alignment = {indent:2};
+            ws.getCell(r,2).value = qty; ws.getCell(r,2).numFmt = '#,##0'; ws.getCell(r,2).alignment = {horizontal:'right'};
+            ws.getCell(r,1).border = borderThin; ws.getCell(r,2).border = borderThin;
+            r++;
+          }
+          // Spacer row only when showing colours
+          ws.getCell(r,1).value = '';
+          ws.getCell(r,2).value = '';
+          ws.getCell(r,1).border = borderThin;
+          ws.getCell(r,2).border = borderThin;
+          r++;
+        }
+      }
+      ws.getCell(r,1).value = 'Total'; ws.getCell(r,1).font={bold:true};
+      ws.getCell(r,2).value = grand; ws.getCell(r,2).numFmt = '#,##0'; ws.getCell(r,2).alignment = {horizontal:'right'};
+      ws.getCell(r,1).border = borderThin; ws.getCell(r,2).border = borderThin;
+    }
+
+    const buf = await workbook.xlsx.writeBuffer();
+    // Construct a nicer file name. If exporting the filtered view, use a timestamp-based
+    // name of the form YYYYMMDDHH_ColourReport. Otherwise fall back to the dataset
+    // name (without extension) and append "_colour_breakdown".
+    let fname;
+    if(filteredOnly){
+      const now=new Date();
+      const ts = String(now.getFullYear()) + String(now.getMonth()+1).padStart(2,'0') + String(now.getDate()).padStart(2,'0') + String(now.getHours()).padStart(2,'0');
+      fname = `${ts}_ColourReport.xlsx`;
+    } else {
+      fname = (DATA.meta?.name||'color_breakdown').replace(/\.[^.]+$/,'') + '_colour_breakdown.xlsx';
+    }
+    saveAs(new Blob([buf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}), fname);
+  }
+
+  // ===== Snapshot export (remove import UI in the output) =====
+  function exportSnapshot(){
+    const doc=document.documentElement.cloneNode(true);
+    const script=doc.querySelector('#dataset'); if(script){ script.textContent=JSON.stringify(DATA); }
+    const up=doc.querySelector('#uploadRow'); if(up) up.remove();
+    const blob=new Blob(["<!doctype html>\n"+doc.outerHTML],{type:'text/html;charset=utf-8'});
+    const fname=(DATA.meta?.name||'snapshot').replace(/\.[^.]+$/,'')+'_snapshot.html'; saveAs(blob,fname);
+  }
+
+  // ===== Events =====
+  $('#btnParse')?.addEventListener('click', async ()=>{
+    const datasetFile = document.getElementById('file')?.files?.[0];
+    if(!datasetFile){ alert('Choose a stock file first'); return; }
+    status('Parsing dataset…');
+    try{
+      // Parse the dataset (CSV/XLSX) into JSON rows
+      const datasetRows = await parseFile(datasetFile);
+      // When loading a new dataset, clear any existing name map and disable mapping
+      NAME_MAP = {};
+      SYNONYM_MAP = {};
+      MAPPING_ACTIVE = false;
+      // Process the dataset into aggregated rows without applying any name map
+      processRaw(datasetRows);
+      renderTable();
+      // Build suggestions based solely on the dataset contents
+      buildModelSuggestions();
+      // Update status message
+      const datasetName = datasetFile.name;
+      status(`Loaded: ${datasetName} (rows: ${DATA.rows.length.toLocaleString()})`);
+      document.getElementById('btnExportXlsx').disabled=false;
+      document.getElementById('btnExportView').disabled=false;
+      document.getElementById('btnExportHTML').disabled=false;
+    }catch(e){
+      console.error(e);
+      alert(e.message||String(e));
+      status('Load failed');
+    }
+  });
+  $('#q').addEventListener('input', ()=>renderTable());
+  $('#btnClear').addEventListener('click', ()=>{
+    // Clear search and tokens
+    $('#q').value=''; MODEL_TOKENS=[]; renderTokens();
+    // Clear all selected chip filters
+    SELECTED_COUNTRIES.clear();
+    SELECTED_GRADES.clear();
+    SELECTED_CATEGORIES.clear();
+    SELECTED_SIMS.clear();
+    // Update chip highlights for each box
+    updateChipHighlights('#regionChips', SELECTED_COUNTRIES);
+    updateChipHighlights('#gradeChips', SELECTED_GRADES);
+    updateChipHighlights('#categoryChips', SELECTED_CATEGORIES);
+    updateChipHighlights('#simChips', SELECTED_SIMS);
+    // Reset binary filters (for this tool, preorder always included and locked units are allowed)
+    PREORDER_INCLUDE = true;
+    LOCKED_EXCLUDE = false;
+    // Rebuild binary chips if present; in this tool these chips may be absent
+    buildPreorderChips();
+    buildLockedChips();
+    // Clear order entries and update buttons
+    ORDER_ENTRIES = {};
+    updateOrderButtons();
+    // Refresh table
+    renderTable();
+    clearTokenError();
+    // Clear any batch filter selections and file input
+    if(BATCH_SET){ BATCH_SET.clear(); }
+    const bfEl = document.getElementById('batchFile');
+    if(bfEl) bfEl.value = '';
+  });
+  $('#btnExportXlsx').addEventListener('click', ()=>exportExcel(false));
+  $('#btnExportView').addEventListener('click', ()=>exportExcel(true));
+  $('#btnExportHTML').addEventListener('click', exportSnapshot);
+  // Order export buttons
+  $('#btnExportOrderCsv')?.addEventListener('click', exportOrderCsv);
+  $('#btnExportValidationCsv')?.addEventListener('click', exportValidationCsv);
+  // Take all filtered: set quantity to max for all currently filtered rows
+  document.getElementById('btnTakeAllFiltered')?.addEventListener('click', ()=>{
+    const rows = applyFilters(DATA.rows);
+    for(const r of rows){
+      const qtyEff = r.QtyAvail + (PREORDER_INCLUDE ? r.QtyPre : 0);
+      if(!ORDER_ENTRIES[r.Key]) ORDER_ENTRIES[r.Key] = {qty:0, offer:''};
+      ORDER_ENTRIES[r.Key].qty = qtyEff;
+      // Do not override existing offer values
+    }
+    renderTable();
+    status('All filtered items set to maximum quantity');
+  });
+
+  // Name map loader: parse a name mapping file (pricing SKU -> English name) and apply it to the existing dataset.
+  document.getElementById('btnNameMap')?.addEventListener('click', async () => {
+    const fileInput = document.getElementById('nameFile');
+    const file = fileInput?.files?.[0];
+    if(!file){ alert('Choose a name mapping file first'); return; }
+    if(!DATA.raw || !DATA.raw.length){ alert('Load a dataset first'); return; }
+    try{
+      const mapRows = await parseFile(file);
+      buildSkuNameMapFromRows(mapRows, DATA.raw);
+      // Activate mapping and reprocess dataset using the newly built name map
+      MAPPING_ACTIVE = true;
+      reprocessWithMapping();
+      // Update suggestions based on the new canonical names and synonyms
+      buildModelSuggestions();
+      // Update status message
+      status(`Name map loaded: ${file.name} (pricing SKUs: ${Object.keys(NAME_MAP).length.toLocaleString()})`);
+    }catch(e){
+      console.error(e);
+      alert(e.message||String(e));
+      status('Name map load failed');
+    }
+  });
+
+  // Batch filter loader: parse a file containing Region, Model Grade and optional Offer columns
+  document.getElementById('btnBatchFilter')?.addEventListener('click', async () => {
+    const fileInput = document.getElementById('batchFile');
+    const file = fileInput?.files?.[0];
+    if(!file){ alert('Choose a batch file first'); return; }
+    try{
+      const rows = await parseFile(file);
+      if(!rows || !rows.length){ alert('Batch file is empty'); return; }
+      // Determine column order: first column => region, second => model grade, third => offer (if present)
+      const keys = Object.keys(rows[0]||{});
+      if(keys.length < 2){ alert('Batch file must have at least two columns (Region and Model Grade)'); return; }
+      const colRegion = keys[0];
+      const colModelGrade = keys[1];
+      const colOffer = keys.length > 2 ? keys[2] : null;
+      // Reset batch filter sets
+      BATCH_SET.clear();
+      const batchOffers = new Map();
+      // Build sets and offer map
+      rows.forEach(r => {
+        const region = String(r[colRegion]||'').trim().toUpperCase();
+        const mg = String(r[colModelGrade]||'').trim();
+        if(!region || !mg) return;
+        const mgClean = mg.replace(/\s{2,}/g,' ').trim();
+        const keyPair = region + '\t' + mgClean.toLowerCase();
+        BATCH_SET.add(keyPair);
+        if(colOffer){
+          const offerVal = r[colOffer];
+          if(offerVal != null && String(offerVal).trim() !== ''){
+            batchOffers.set(keyPair, String(offerVal).trim());
+          }
+        }
+      });
+      // Apply batch filter: set quantities and offers on matching aggregated rows
+      for(const r of DATA.rows){
+        const keyPair = String(r.Country||'').toUpperCase() + '\t' + String(r.Header||'').toLowerCase();
+        if(BATCH_SET.has(keyPair)){
+          const qtyEff = r.QtyAvail + (PREORDER_INCLUDE ? r.QtyPre : 0);
+          if(!ORDER_ENTRIES[r.Key]) ORDER_ENTRIES[r.Key] = {qty:0, offer:''};
+          ORDER_ENTRIES[r.Key].qty = qtyEff;
+          if(batchOffers.has(keyPair)){
+            ORDER_ENTRIES[r.Key].offer = batchOffers.get(keyPair);
+          }
+        }
+      }
+      renderTable();
+      status(`Batch filter loaded (${BATCH_SET.size.toLocaleString()} pairs)`);
+    }catch(err){
+      console.error(err);
+      alert('Failed to load batch filter: ' + (err.message || String(err)));
+    }
+  });
+
+  // No longer a standalone name map loader.  The name mapping file is processed
+  // alongside the stock file when clicking the Load file button.
+
+  // Summary toggle: update global flag and re-render table when changed
+  const summaryToggle = document.getElementById('summaryToggle');
+  if(summaryToggle){
+    summaryToggle.addEventListener('change', (e)=>{
+      SHOW_SUMMARY_ONLY = !!e.target.checked;
+      renderTable();
+    });
+  }
+
+  $('#btnApplyMap').addEventListener('click', ()=>{ DATA.regionMap = parseRegionMap($('#regionMapBox').value); reprocessWithMapping(); });
+  $('#btnDownloadMap').addEventListener('click', ()=>{ const blob=new Blob([$('#regionMapBox').value],{type:'text/plain;charset=utf-8'}); saveAs(blob,'region_mapping.txt'); });
+})();
+</script>
+</body>
+</html>
