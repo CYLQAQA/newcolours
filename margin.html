@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Margin Sheet Aggregator (Patched v2)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+  <style>
+    table.output-table{width:100%;border-collapse:collapse;margin-top:1rem}
+    table.output-table th,table.output-table td{border:1px solid #d1d5db;padding:.5rem;text-align:left;white-space:nowrap;min-width:220px}
+    table.output-table thead th{background:#f3f4f6;font-weight:600}
+    .drop-zone{display:flex;align-items:center;justify-content:center;border:2px dashed #9ca3af;border-radius:.5rem;padding:2rem;text-align:center;color:#6b7280;cursor:pointer;transition:.2s}
+    .drop-zone.dragover{background:#e5e7eb;border-color:#3b82f6;color:#374151}
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen p-4">
+  <div class="max-w-7xl mx-auto">
+    <h1 class="text-2xl font-bold mb-4">Margin Sheet Aggregator (Patched v2)</h1>
+
+    <!-- Drop zone / file input -->
+    <div id="dropZone" class="drop-zone mb-4">
+      <span>Drag & drop Excel files here or click to select</span>
+      <input id="fileInput" type="file" multiple accept=".xlsx,.xls" class="hidden" />
+    </div>
+
+    <!-- Controls -->
+    <div class="controls flex flex-wrap gap-4 items-center mb-4">
+      <div>
+        <label for="refInput" class="block text-sm font-medium text-gray-700">Reference Map (model mapping)</label>
+        <input id="refInput" type="file" accept=".xls,.xlsx" class="mt-1 block w-80 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm" />
+      </div>
+      <label class="flex items-center space-x-2">
+        <input id="skipRowsCheckbox" type="checkbox" class="h-4 w-4 text-blue-600" checked />
+        <span class="text-sm">Headers start at row 3 (skip first 2 rows)</span>
+      </label>
+      <div>
+        <label for="fxRatesInput" class="block text-sm font-medium text-gray-700">FX rates (e.g. HKD=0.128,JPY=0.0068)</label>
+        <input id="fxRatesInput" type="text" class="mt-1 block w-80 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm" value="HKD=0.128,JPY=0.0068,AUD=0.65,EUR=1.10,GBP=1.27,CAD=0.74" />
+      </div>
+      <div>
+        <label for="aspMethod" class="block text-sm font-medium text-gray-700">ASP aggregation</label>
+        <select id="aspMethod" class="mt-1 block w-40 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+          <option value="max" selected>Max</option>
+          <option value="avg">Average</option>
+        </select>
+      </div>
+      <button id="processBtn" class="bg-blue-600 text-white px-4 py-2 rounded-md shadow hover:bg-blue-700 disabled:opacity-50">Process</button>
+      <button id="downloadBtn" class="bg-green-600 text-white px-4 py-2 rounded-md shadow hover:bg-green-700 hidden">Download Excel</button>
+    </div>
+
+    <!-- Mapping table -->
+    <div id="mappingSection" class="overflow-x-auto mb-4 hidden">
+      <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-100">
+          <tr>
+            <th class="px-3 py-2 text-left text-xs font-medium text-gray-700">File</th>
+            <th class="px-3 py-2 text-left text-xs font-medium text-gray-700">Sheet</th>
+            <th class="px-3 py-2 text-left text-xs font-medium text-gray-700">Detected Type</th>
+            <th class="px-3 py-2 text-left text-xs font-medium text-gray-700">Select Type</th>
+            <th class="px-3 py-2 text-left text-xs font-medium text-gray-700">Region</th>
+            <th class="px-3 py-2 text-left text-xs font-medium text-gray-700">Include</th>
+          </tr>
+        </thead>
+        <tbody id="mappingTableBody" class="bg-white divide-y divide-gray-200"></tbody>
+      </table>
+    </div>
+
+    <!-- Output table -->
+    <div id="output" class="overflow-auto"></div>
+  </div>
+
+  <script>
+    // ---------- Helpers ----------
+    function normalizeKey(str){ if(!str) return ''; return String(str).trim().replace(/\s+/g,' ').replace(/\s+-\s+/g,'-').toLowerCase(); }
+    function toNumber(value){ if(value===undefined||value===null) return NaN; let s=String(value).trim(); if(!s) return NaN; let neg=false; if(s.startsWith('(')&&s.endsWith(')')){neg=true; s=s.slice(1,-1);} s=s.replace(/,/g,''); let n=parseFloat(s); if(isNaN(n)) return NaN; return neg?-n:n; }
+    function parseFxRates(input){ const rates={}; if(input){ input.split(/[,;\n]+/).forEach(p=>{ const parts=p.split('='); if(parts.length===2){ const code=parts[0].trim(); const rate=parseFloat(parts[1]); if(code && !isNaN(rate)) rates[code.toUpperCase()]=rate; } }); } const defaults={HKD:0.128,JPY:0.0068,AUD:0.65,EUR:1.10,GBP:1.27,CAD:0.74,SGD:0.74,NZD:0.62}; Object.keys(defaults).forEach(k=>{ if(!rates[k]) rates[k]=defaults[k]; }); return rates; }
+
+    const sheetsInfo=[]; // {fileName, sheetName, data}
+    const referenceMap={}; let referenceLoaded=false;
+    function normalizeForRef(str){ if(!str) return ''; return String(str).trim().replace(/\s+/g,' ').replace(/\s*-\s*/g,'-').toLowerCase(); }
+
+    function loadReference(file){
+      return new Promise((resolve,reject)=>{
+        const reader=new FileReader();
+        reader.onload=e=>{
+          try{
+            const data=new Uint8Array(e.target.result);
+            const wb=XLSX.read(data,{type:'array'});
+            const ws=wb.Sheets[wb.SheetNames[0]];
+            const rows=XLSX.utils.sheet_to_json(ws,{defval:''});
+            rows.forEach(row=>{
+              // canonical en name
+              let canonical='';
+              Object.keys(row).forEach(col=>{
+                const low=col.toLowerCase();
+                if(low==='en name'||low==='en_name'||low==='enname'){ canonical=row[col]; }
+              });
+              if(!canonical) return;
+              const normCanon=normalizeForRef(canonical);
+              if(normCanon) referenceMap[normCanon]=canonical;
+              const fields=['modelcapcity','model capacity','bi name','en name','en_name','enname','pricing sku','pricingsku','sku'];
+              fields.forEach(field=>{
+                Object.keys(row).forEach(col=>{
+                  if(col.toLowerCase().replace(/\s+/g,'')===field.replace(/\s+/g,'')){
+                    const v=row[col]; const n=normalizeForRef(v); if(n) referenceMap[n]=canonical;
+                  }
+                });
+              });
+            });
+            referenceLoaded=true; resolve();
+          }catch(err){ reject(err); }
+        };
+        reader.onerror=reject;
+        reader.readAsArrayBuffer(file);
+      });
+    }
+
+    function handleFiles(files){
+      sheetsInfo.length=0; const tasks=[];
+      Array.from(files).forEach(file=>{
+        tasks.push(new Promise((resolve,reject)=>{
+          const reader=new FileReader();
+          reader.onload=e=>{
+            try{
+              const data=new Uint8Array(e.target.result);
+              const wb=XLSX.read(data,{type:'array'});
+              wb.SheetNames.forEach(sheetName=>{
+                const ws=wb.Sheets[sheetName];
+                const arr=XLSX.utils.sheet_to_json(ws,{header:1,raw:true});
+                sheetsInfo.push({fileName:file.name,sheetName,data:arr});
+              });
+              resolve();
+            }catch(err){ reject(err); }
+          };
+          reader.onerror=reject;
+          reader.readAsArrayBuffer(file);
+        }));
+      });
+      Promise.all(tasks).then(buildMappingTable).catch(err=>alert('Error reading files: '+err.message));
+    }
+
+    function buildMappingTable(){
+      const tbody=document.getElementById('mappingTableBody'); tbody.innerHTML='';
+      const skipFirstTwo=document.getElementById('skipRowsCheckbox').checked;
+      sheetsInfo.forEach((item,idx)=>{
+        const headerRow=skipFirstTwo?item.data[2]:item.data[0];
+        const headers=(headerRow||[]).map(h=>h!==undefined&&h!==null?String(h).trim():'');
+        let detectedType=''; const lower=headers.map(h=>h.toLowerCase().replace(/\s+/g,''));
+        if(lower.includes('model/grade') && lower.some(h=>/cpu\+?load/.test(h)) && lower.some(h=>/lastasp/.test(h))){ detectedType='Type 1'; }
+        else if(lower.includes('modelcapacity') && lower.includes('grade') && lower.some(h=>/netcpu\+load/.test(h))){ detectedType='Type 2'; }
+        else { detectedType='Unknown'; }
+        const tr=document.createElement('tr'); tr.dataset.index=idx;
+        tr.innerHTML=`
+          <td class="px-3 py-2 text-sm">${item.fileName}</td>
+          <td class="px-3 py-2 text-sm">${item.sheetName}</td>
+          <td class="px-3 py-2 text-sm">${detectedType}</td>
+          <td class="px-3 py-2 text-sm">
+            <select class="type-select border-gray-300 rounded p-1">
+              <option value=\"Type 1\" ${detectedType==='Type 1'?'selected':''}>Type 1</option>
+              <option value=\"Type 2\" ${detectedType==='Type 2'?'selected':''}>Type 2</option>
+              <option value=\"Unknown\" ${detectedType==='Unknown'?'selected':''}>Unknown</option>
+            </select>
+          </td>
+          <td class="px-3 py-2 text-sm">
+            <select class="region-select border-gray-300 rounded p-1">
+              <option value="">Select</option>
+              <option value="HK">HK</option>
+              <option value="JP">JP</option>
+              <option value="US">US</option>
+              <option value="AU">AU</option>
+              <option value="IRE">IRE</option>
+              <option value="UK">UK</option>
+              <option value="DUB">DUB</option>
+              <option value="CA">CA</option>
+            </select>
+          </td>
+          <td class="px-3 py-2 text-center"><input type="checkbox" class="include-checkbox" checked></td>`;
+        tbody.appendChild(tr);
+      });
+      document.getElementById('mappingSection').classList.remove('hidden');
+    }
+
+    // ---------- Main processing ----------
+    document.getElementById('processBtn').addEventListener('click',()=>{
+      if(sheetsInfo.length===0){ alert('Please upload at least one file first.'); return; }
+      const skipFirstTwo=document.getElementById('skipRowsCheckbox').checked;
+      const aspAggMethod=document.getElementById('aspMethod').value || 'max';
+      const fxRates=parseFxRates(document.getElementById('fxRatesInput').value);
+
+      const summaryByRegion={}; // region -> key -> record
+      const aggregatorType1={};
+
+      const rows=document.querySelectorAll('#mappingTableBody tr');
+      rows.forEach(row=>{
+        const idx=parseInt(row.dataset.index,10);
+        const include=row.querySelector('.include-checkbox').checked; if(!include) return;
+        const region=row.querySelector('.region-select').value; const type=row.querySelector('.type-select').value; if(!region) return;
+
+        const item=sheetsInfo[idx];
+        const data=item.data;
+        const headerRow=skipFirstTwo?data[2]:data[0];
+        const dataRows=skipFirstTwo?data.slice(3):data.slice(1);
+        const headers=(headerRow||[]).map(h=>h!==undefined&&h!==null?String(h).trim():'');
+        const headerMap={}; headers.forEach((h,i)=>headerMap[h]=i);
+
+        if(!summaryByRegion[region]) summaryByRegion[region]={};
+
+        if(type==='Type 1'){
+          let modelIdx=-1,costIdx=-1,aspIdx=-1,soldIdx=-1; let costCurrency='USD',aspCurrency='USD'; let fallbackCostIdx=-1,fallbackCostCurrency='USD';
+          headers.forEach((h,i)=>{
+            const lower=h.toLowerCase(); if(lower==='model/grade') modelIdx=i;
+            if(/cpu\s*\+?\s*load/i.test(lower)){
+              let curr='USD'; const m=h.match(/\(([^)]+)\)/); if(m) curr=m[1].toUpperCase().trim();
+              if(curr==='USD'){ costIdx=i; costCurrency=curr; } else if(fallbackCostIdx<0){ fallbackCostIdx=i; fallbackCostCurrency=curr; }
+            }
+            if(/last\s*asp/i.test(lower)){ aspIdx=i; const m2=h.match(/\(([^)]+)\)/); if(m2) aspCurrency=m2[1].toUpperCase().trim(); }
+            if(/last\s*sold/i.test(lower)||/sold\s*\(days\)/i.test(lower)) soldIdx=i;
+          });
+          if(costIdx<0 && fallbackCostIdx>=0){ costIdx=fallbackCostIdx; costCurrency=fallbackCostCurrency; }
+
+          dataRows.forEach(rvals=>{
+            const model=rvals[modelIdx]; if(model===undefined||model===null||model==='') return;
+            const rawModel=(typeof model==='string'?model.trim():String(model)).replace(/\s+/g,' ');
+            let baseModel=rawModel, gradePart=''; const hy=rawModel.lastIndexOf('-'); if(hy>0){ baseModel=rawModel.slice(0,hy).trim(); gradePart=rawModel.slice(hy+1).trim(); }
+            let canonBase=baseModel; if(referenceLoaded){ const n=normalizeForRef(baseModel); if(n && referenceMap[n]) canonBase=referenceMap[n]; }
+            const canonicalName=gradePart?`${canonBase}-${gradePart}`:canonBase; const key=normalizeKey(canonicalName);
+
+            const costValRaw=toNumber(rvals[costIdx]); const costDefined=!isNaN(costValRaw);
+            let aspVal=toNumber(rvals[aspIdx]); const lastSold=soldIdx>=0?toNumber(rvals[soldIdx]):undefined; if(isNaN(aspVal)) aspVal=undefined;
+
+            let aspUSD; if(aspVal!==undefined){ if(aspCurrency && aspCurrency!=='USD'){ const rate=fxRates[aspCurrency]; if(rate) aspUSD=aspVal*rate; } else { aspUSD=aspVal; } }
+            let costUSD; if(costDefined){ costUSD=costValRaw; if(costCurrency && costCurrency!=='USD'){ const cRate=fxRates[costCurrency]; if(cRate) costUSD=costValRaw*cRate; } }
+
+            if(!aggregatorType1[region]) aggregatorType1[region]={}; const regAgg=aggregatorType1[region];
+            if(!regAgg[key]){
+              regAgg[key]={
+                maxCostUSD:costUSD, maxCostVal:costValRaw, costCurrency:costCurrency||'USD',
+                aspSumUSD:(aspUSD!==undefined)?aspUSD:0, aspCount:(aspUSD!==undefined)?1:0,
+                aspMaxUSD:aspUSD, aspCurrency:aspCurrency||'USD',
+                lastSoldDay:(!isNaN(lastSold)&&lastSold!==undefined)?lastSold:undefined,
+                originalKey:canonicalName
+              };
+            } else {
+              const ag=regAgg[key];
+              if(costUSD!==undefined){ if(ag.maxCostUSD===undefined||costUSD>ag.maxCostUSD){ ag.maxCostUSD=costUSD; ag.maxCostVal=costValRaw; ag.costCurrency=costCurrency||ag.costCurrency; } }
+              if(aspUSD!==undefined){ ag.aspSumUSD+=aspUSD; ag.aspCount+=1; if(ag.aspMaxUSD===undefined||aspUSD>ag.aspMaxUSD){ ag.aspMaxUSD=aspUSD; ag.aspCurrency=aspCurrency||ag.aspCurrency; } }
+              if(!isNaN(lastSold)&&lastSold!==undefined){ if(ag.lastSoldDay===undefined||lastSold<ag.lastSoldDay){ ag.lastSoldDay=lastSold; } }
+            }
+          });
+        } else if(type==='Type 2'){
+          // ----- PATCHED TYPE 2 -----
+          let modelCapIdx = headerMap['ModelCapacity']!==undefined ? headerMap['ModelCapacity'] : -1;
+          let gradeIdx     = headerMap['Grade']!==undefined          ? headerMap['Grade']          : -1;
+          let availIdx     = headerMap['Available']!==undefined      ? headerMap['Available']      : -1;
+
+          let costIdx2=-1; headers.forEach((h,i)=>{ const lower=h.toLowerCase(); if(costIdx2<0 && /net\s*cpu\s*\+\s*load/i.test(lower)) costIdx2=i; });
+          let aspIdx2 = headerMap['Last 4w Gross ASP USD']!==undefined ? headerMap['Last 4w Gross ASP USD'] : -1;
+
+          const aggregator={};
+          dataRows.forEach(rvals=>{
+            const modelCap=rvals[modelCapIdx]; const grade=rvals[gradeIdx]; if(!modelCap||!grade) return;
+            const baseModelRaw=(typeof modelCap==='string'?modelCap.trim():String(modelCap)).replace(/\s+/g,' ');
+            const gradeRaw=(typeof grade==='string'?grade.trim():String(grade));
+            let canonicalBase=baseModelRaw; if(referenceLoaded){ const n=normalizeForRef(baseModelRaw); if(n&&referenceMap[n]) canonicalBase=referenceMap[n]; }
+            const canonicalName=`${canonicalBase}-${gradeRaw}`; const key=normalizeKey(canonicalName);
+
+            const avail=toNumber(availIdx>=0 ? rvals[availIdx] : undefined);
+            const cost =toNumber(costIdx2>=0 ? rvals[costIdx2] : undefined);
+            const asp  =toNumber(aspIdx2>=0  ? rvals[aspIdx2]  : undefined);
+
+            if(!aggregator[key]) aggregator[key]={ costSum:0,costAvailSum:0,totalAvail:0,costMax:undefined,aspMax:undefined,aspSumRaw:0,aspCount:0,canonicalName };
+            const ag=aggregator[key];
+
+            if(!isNaN(avail) && avail>0){
+              ag.totalAvail += avail;
+              if(!isNaN(cost)){ ag.costSum += avail*cost; ag.costAvailSum += avail; }
+            }
+            if(!isNaN(cost)){
+              if(ag.costMax===undefined || cost>ag.costMax) ag.costMax=cost;
+            }
+            if(!isNaN(asp)){
+              if(aspAggMethod==='avg'){ ag.aspSumRaw += asp; ag.aspCount += 1; }
+              else { if(ag.aspMax===undefined || asp>ag.aspMax) ag.aspMax=asp; }
+            }
+          });
+
+          Object.keys(aggregator).forEach(cKey=>{
+            const ag=aggregator[cKey];
+            let costUSD; if(ag.costAvailSum>0) costUSD=ag.costSum/ag.costAvailSum; else if(ag.costMax!==undefined) costUSD=ag.costMax;
+            let aspUSD; if(aspAggMethod==='avg') aspUSD = ag.aspCount>0 ? (ag.aspSumRaw/ag.aspCount) : undefined; else aspUSD = ag.aspMax!==undefined ? ag.aspMax : undefined;
+
+            if(costUSD!==undefined || aspUSD!==undefined){
+              const rec={ costUSD:costUSD, costCurrency:'USD', costVal:costUSD, aspUSD:aspUSD, aspLocal:aspUSD, aspCurrency:'USD', lastSoldDay:undefined, originalKey:ag.canonicalName };
+              const existing=summaryByRegion[region][cKey];
+              let update=false;
+              if(!existing) update=true; else {
+                if(existing.costUSD===undefined && rec.costUSD!==undefined) update=true;
+                else if(existing.costUSD!==undefined && rec.costUSD!==undefined && rec.costUSD>existing.costUSD) update=true;
+                else if(existing.costUSD===undefined && rec.costUSD===undefined){
+                  if((existing.aspUSD===undefined && rec.aspUSD!==undefined) || (rec.aspUSD!==undefined && existing.aspUSD!==undefined && rec.aspUSD>existing.aspUSD)) update=true;
+                }
+              }
+              if(update) summaryByRegion[region][cKey]=rec;
+            }
+          });
+        }
+      });
+
+      // Finalize Type 1 aggregations
+      Object.keys(aggregatorType1).forEach(region=>{
+        const regAgg=aggregatorType1[region]; if(!summaryByRegion[region]) summaryByRegion[region]={};
+        Object.keys(regAgg).forEach(key=>{
+          const ag=regAgg[key];
+          const costUSD=ag.maxCostUSD; const costVal=ag.maxCostVal; const costCurrency=ag.costCurrency||'USD';
+          let aspUSD; if(aspAggMethod==='avg') aspUSD=ag.aspCount>0?(ag.aspSumUSD/ag.aspCount):undefined; else aspUSD=(ag.aspMaxUSD!==undefined)?ag.aspMaxUSD:undefined;
+          const aspCurrencyFinal=ag.aspCurrency||'USD'; let aspLocal;
+          if(aspUSD!==undefined){
+            if(aspCurrencyFinal!=='USD'){
+              const rate=parseFxRates(document.getElementById('fxRatesInput').value)[aspCurrencyFinal];
+              aspLocal=rate? aspUSD/rate : undefined;
+            } else { aspLocal=aspUSD; }
+          }
+          const rec={ costUSD:costUSD, costCurrency:costCurrency, costVal:costVal, aspUSD:aspUSD, aspLocal:aspLocal, aspCurrency:aspCurrencyFinal, lastSoldDay:ag.lastSoldDay, originalKey:ag.originalKey };
+          const existing=summaryByRegion[region][key]; let update=false;
+          if(!existing) update=true; else {
+            if(existing.costUSD===undefined||existing.costUSD===null){ if(rec.costUSD!==undefined) update=true; else if(existing.aspUSD===undefined && rec.aspUSD!==undefined) update=true; else if(rec.aspUSD!==undefined && existing.aspUSD!==undefined && rec.aspUSD>existing.aspUSD) update=true; }
+            else if(rec.costUSD!==undefined && rec.costUSD>existing.costUSD) update=true;
+          }
+          if(update) summaryByRegion[region][key]=rec;
+        });
+      });
+
+      buildOutputTable(summaryByRegion, fxRates);
+    });
+
+    function buildOutputTable(summaryByRegion, fxRates){
+      const output=document.getElementById('output'); output.innerHTML='';
+      const regions=Object.keys(summaryByRegion); const allKeys=new Set(); regions.forEach(r=>Object.keys(summaryByRegion[r]).forEach(k=>allKeys.add(k)));
+      const keys=[...allKeys].sort();
+      const displayKey={}; regions.forEach(r=>{ Object.keys(summaryByRegion[r]).forEach(k=>{ const row=summaryByRegion[r][k]; if(row&&row.originalKey && !displayKey[k]) displayKey[k]=row.originalKey; }); });
+
+      const table=document.createElement('table'); table.className='output-table';
+      const thead=document.createElement('thead'); const hr=document.createElement('tr');
+      const th0=document.createElement('th'); th0.textContent='Model/Grade'; hr.appendChild(th0);
+
+      const regionMeta={}; regions.forEach(r=>{ regionMeta[r]={}; keys.forEach(k=>{ const row=summaryByRegion[r][k]; if(row && !regionMeta[r].aspCurrency) regionMeta[r].aspCurrency=row.aspCurrency; }); });
+
+      regions.forEach(r=>{
+        const cTh=document.createElement('th'); cTh.textContent=`C+Load(USD)(${r})`; hr.appendChild(cTh);
+        const aspCurr=(regionMeta[r].aspCurrency||'USD').toUpperCase(); const aTh=document.createElement('th'); aTh.textContent=`Last ASP(${aspCurr})(${r})`; hr.appendChild(aTh);
+        if(aspCurr!=='USD'){ const rate=fxRates[aspCurr]; const usdTh=document.createElement('th'); usdTh.textContent=`Last ASP(USD FX:${rate||''})(${r})`; hr.appendChild(usdTh); }
+        const sTh=document.createElement('th'); sTh.textContent=`Last Sold Day(${r})`; hr.appendChild(sTh);
+      });
+      thead.appendChild(hr); table.appendChild(thead);
+
+      const tbody=document.createElement('tbody');
+      keys.forEach(k=>{
+        const tr=document.createElement('tr'); const td0=document.createElement('td'); td0.textContent=displayKey[k]||k; tr.appendChild(td0);
+        regions.forEach(r=>{
+          const row=summaryByRegion[r][k];
+          const cTd=document.createElement('td'); cTd.textContent=(row&&row.costUSD!==undefined)?row.costUSD.toFixed(2):''; tr.appendChild(cTd);
+          const aTd=document.createElement('td'); aTd.textContent=(row&&row.aspLocal!==undefined)?row.aspLocal.toFixed(2):''; tr.appendChild(aTd);
+          const aspCurr=(regionMeta[r].aspCurrency||'USD').toUpperCase(); if(aspCurr!=='USD'){ const uTd=document.createElement('td'); uTd.textContent=(row&&row.aspUSD!==undefined)?row.aspUSD.toFixed(2):''; tr.appendChild(uTd); }
+          const sTd=document.createElement('td'); sTd.textContent=(row&&row.lastSoldDay!==undefined)?String(row.lastSoldDay):''; tr.appendChild(sTd);
+        });
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody); output.appendChild(table);
+
+      document.getElementById('downloadBtn').classList.toggle('hidden', keys.length===0);
+      window._generatedTable=table;
+    }
+
+    document.getElementById('downloadBtn').addEventListener('click',()=>{
+      const table=window._generatedTable; if(!table) return;
+      const wb=XLSX.utils.book_new(); const ws=XLSX.utils.table_to_sheet(table); XLSX.utils.book_append_sheet(wb,ws,'Summary');
+      const now=new Date(); const tzString=now.toLocaleString('en-US',{ timeZone:'Asia/Taipei' }); const tzDate=new Date(tzString);
+      const pad=n=>String(n).padStart(2,'0'); const mm=pad(tzDate.getMonth()+1), dd=pad(tzDate.getDate()), hh=pad(tzDate.getHours());
+      const name=`${mm}${dd}${hh}_MarginSummary.xlsx`; XLSX.writeFile(wb,name);
+    });
+
+    // ---------- UI wiring ----------
+    const dropZone=document.getElementById('dropZone'); const fileInput=document.getElementById('fileInput');
+    dropZone.addEventListener('click',()=>fileInput.click());
+    fileInput.addEventListener('change',e=>handleFiles(e.target.files));
+    dropZone.addEventListener('dragover',e=>{ e.preventDefault(); dropZone.classList.add('dragover'); });
+    dropZone.addEventListener('dragleave',()=>dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop',e=>{ e.preventDefault(); dropZone.classList.remove('dragover'); handleFiles(e.dataTransfer.files); });
+
+    document.getElementById('refInput').addEventListener('change',async (e)=>{ const f=e.target.files && e.target.files[0]; if(!f) return; try{ await loadReference(f); alert('Reference map loaded.'); } catch(err){ alert('Failed to load reference: '+err.message); } });
+  </script>
+</body>
+</html>
