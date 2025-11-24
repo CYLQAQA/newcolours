@@ -263,9 +263,12 @@
    */
   function getCanonicalFromSku(sku){
     if(!sku) return null;
-    // Determine the SKU without its grade suffix and normalise case
-    let noGrade = removeGradeFromSku(String(sku)).toUpperCase();
-    // Split into segments. We will attempt to find the longest matching prefix
+    if(!sku) return null;
+    // First attempt an exact match on the base SKU (full SKU minus grade suffix)
+    const noGrade = removeGradeFromSku(String(sku)).toUpperCase();
+    const direct = NAME_MAP[noGrade];
+    if(direct && direct.canonical) return direct.canonical;
+    // Fall back: attempt to find the longest matching prefix (pricing SKU) for backwards compatibility
     const parts = noGrade.split('-');
     for(let i=parts.length; i>=1; i--){
       const prefix = parts.slice(0,i).join('-');
@@ -278,7 +281,7 @@
   /**
    * Get the grade code from the SKU. Grades are denoted by the final segment in
    * the SKU (after the last dash) when that segment matches one of the known
-   * grade codes (W, WP, A, B, C, Z, DX). Returns an empty string if no grade
+   * grade codes (W, WP, A, B, C, Z, DX, etc.). Returns an empty string if no grade
    * code is present.
    * @param {string} sku Full SKU
    * @returns {string} grade code or ''
@@ -303,14 +306,23 @@
    * @param {string} sku Full SKU from stock file
    * @returns {string} base SKU without grade
    */
-  function removeGradeFromSku(sku){
+  // Remove the grade suffix from a SKU.  If a grade code is provided, remove
+  // that specific code; otherwise remove the last segment if it matches any
+  // known grade code.  Supports both one- and two-letter grade codes (W, WP,
+  // A, B, C, Z, DX, etc.).
+  function removeGradeFromSku(sku, grade){
     if(!sku) return '';
     const s = String(sku).trim();
     const parts = s.split('-');
     if(parts.length === 0) return s;
-    const last = parts[parts.length - 1].toUpperCase();
-    // Remove grade suffix if last segment matches one of the known grade codes
-    if(/^(W|WP|A|B|C|Z|DX|D|F|AS|CP|NB)$/.test(last)){
+    // If a grade code was provided, remove it when it matches the last segment
+    const g = grade ? String(grade).toUpperCase() : null;
+    const lastSeg = parts[parts.length - 1].toUpperCase();
+    if(g && lastSeg === g){
+      return parts.slice(0, parts.length - 1).join('-');
+    }
+    // Otherwise remove if last segment matches a known grade code
+    if(/^(W|WP|A|B|C|Z|DX|D|F|AS|CP|NB)$/.test(lastSeg)){
       return parts.slice(0, parts.length - 1).join('-');
     }
     return s;
@@ -327,7 +339,11 @@
    */
   function getSynonymsFromSku(sku){
     if(!sku) return null;
+    // First try exact base SKU match
     let noGrade = removeGradeFromSku(String(sku)).toUpperCase();
+    const direct = NAME_MAP[noGrade];
+    if(direct && direct.synonyms) return Array.from(direct.synonyms);
+    // Fall back to longest prefix match
     const parts = noGrade.split('-');
     for(let i=parts.length; i>=1; i--){
       const prefix = parts.slice(0,i).join('-');
@@ -351,53 +367,72 @@
     const rows = await parseFile(file);
     if(!rows || !rows.length){ alert('Name mapping file is empty'); return; }
     const keys = Object.keys(rows[0] || {});
-    if(keys.length < 2){ alert('Name mapping file must have at least two columns (pricing SKU and English name)'); return; }
+    if(keys.length < 3){
+      alert('Name mapping file must have at least three columns (SKU, BI name, English name)');
+      return;
+    }
+    // We interpret the first column as the full SKU without grade (base SKU).
+    // The second and third columns contain names (BI name and English name).
     const colSku = keys[0];
     const colName1 = keys[1];
-    const colSyns = keys.length > 2 ? keys[2] : null;
+    const colName2 = keys[2];
     NAME_MAP = {};
     SYNONYM_MAP = {};
-    // Determine if we should restrict to needed pricing skus
-    const needed = (NEEDED_PRICING_SKUS && NEEDED_PRICING_SKUS.size > 0) ? new Set(Array.from(NEEDED_PRICING_SKUS).map(s => s.toUpperCase())) : null;
+    // Restrict processing to base SKUs that appear in the dataset (performance).  If
+    // NEEDED_BASE_SKUS is defined, only process those base SKUs.
+    const neededBase = (NEEDED_BASE_SKUS && NEEDED_BASE_SKUS.size > 0) ? new Set(Array.from(NEEDED_BASE_SKUS).map(s => s.toUpperCase())) : null;
     let processed = 0;
     for(const r of rows){
-      const psRaw = r[colSku];
-      if(psRaw == null) continue;
-      const ps = String(psRaw).trim();
-      if(!ps) continue;
-      const psUpper = ps.toUpperCase();
-      // Skip if needed set is defined and this pricing sku is not needed
-      if(needed && !needed.has(psUpper)) continue;
+      const skuRaw = r[colSku];
+      if(skuRaw == null) continue;
+      const skuStr = String(skuRaw).trim();
+      if(!skuStr) continue;
+      const skuUpper = skuStr.toUpperCase();
+      // Skip if needed set is defined and this base SKU is not needed
+      if(neededBase && !neededBase.has(skuUpper)) continue;
       // Gather names from columns
       const names = [];
       const name1 = r[colName1];
       if(name1 != null){ const n = String(name1).trim(); if(n) names.push(n); }
-      if(colSyns){
-        const synField = r[colSyns];
-        if(synField != null){
-          const synStr = String(synField).trim();
-          if(synStr){
-            // Split synonyms by pipe or comma
-            synStr.split(/[|,]/).forEach(part => {
-              const partTrim = String(part).trim(); if(partTrim) names.push(partTrim);
-            });
+      const name2 = r[colName2];
+      if(name2 != null){ const n = String(name2).trim(); if(n) names.push(n); }
+      // Additional columns beyond index 2 can be treated as synonym fields separated by | or comma
+      if(keys.length > 3){
+        for(let i=3; i<keys.length; i++){
+          const synField = r[keys[i]];
+          if(synField != null){
+            const synStr = String(synField).trim();
+            if(synStr){
+              synStr.split(/[|,]/).forEach(part => {
+                const partTrim = String(part).trim(); if(partTrim) names.push(partTrim);
+              });
+            }
           }
         }
       }
       if(!names.length) continue;
-      if(!NAME_MAP[ps]){
-        NAME_MAP[ps] = { canonical: names[0], synonyms: new Set(names) };
+      // Filter out names that look like code strings (all uppercase letters/digits/hyphens)
+      const filtered = [];
+      for(const nm of names){
+        const clean = String(nm).trim();
+        if(!clean) continue;
+        if(/^[A-Z0-9-]+$/.test(clean)) continue;
+        filtered.push(clean);
+      }
+      if(!filtered.length) continue;
+      if(!NAME_MAP[skuUpper]){
+        NAME_MAP[skuUpper] = { canonical: filtered[0], synonyms: new Set(filtered) };
         processed++;
       } else {
-        const set = NAME_MAP[ps].synonyms;
-        names.forEach(n => { set.add(n); });
+        const set = NAME_MAP[skuUpper].synonyms;
+        filtered.forEach(n => { set.add(n); });
       }
     }
     // Build synonym reverse lookup: lower-case name -> canonical
-    for(const ps in NAME_MAP){
-      if(!Object.prototype.hasOwnProperty.call(NAME_MAP, ps)) continue;
-      const canonical = NAME_MAP[ps].canonical;
-      const syns = NAME_MAP[ps].synonyms;
+    for(const skuKey in NAME_MAP){
+      if(!Object.prototype.hasOwnProperty.call(NAME_MAP, skuKey)) continue;
+      const canonical = NAME_MAP[skuKey].canonical;
+      const syns = NAME_MAP[skuKey].synonyms;
       for(const syn of syns){
         const key = String(syn).trim().toLowerCase();
         if(!SYNONYM_MAP[key]) SYNONYM_MAP[key] = canonical;
@@ -409,7 +444,8 @@
     }
     buildModelSuggestions();
     renderTable();
-    status(`Name map loaded (${processed.toLocaleString()} pricing SKUs)`);
+    // Provide status message indicating number of unique base SKUs processed
+    status(`Name map loaded (${processed.toLocaleString()} base SKUs)`);
   }
 
   /**
@@ -428,11 +464,11 @@
     NAME_MAP = {};
     SYNONYM_MAP = {};
     if(!mapRows || !mapRows.length || !datasetRows || !datasetRows.length) return;
-    // Determine which pricing SKU prefixes from the dataset we actually need. For each
-    // SKU in the dataset (minus its grade), compute its pricing prefix (first
-    // five segments if available) and add to a set. Only mapping entries whose
-    // pricing_sku matches one of these prefixes will be kept.
-    const neededPricing = new Set();
+    // Determine which base SKUs from the dataset we actually need. For each
+    // SKU in the dataset (minus its grade), compute the base SKU and add to
+    // a set. Only mapping entries whose key matches one of these base SKUs
+    // will be kept.  This reduces processing for large mapping files.
+    const neededBase = new Set();
     {
       const cols = Object.keys(datasetRows[0] || {});
       const colSku = pickCol(cols, ['SKU','Sku','Short SKU','Item Code','SKU Code']);
@@ -440,77 +476,63 @@
         for(const r of datasetRows){
           const skuVal = r[colSku];
           if(!skuVal) continue;
-          // Remove grade suffix
           const skuNoGrade = removeGradeFromSku(String(skuVal));
           if(!skuNoGrade) continue;
-          const parts = skuNoGrade.split('-');
-          const prefix = parts.length >= 5 ? parts.slice(0,5).join('-') : parts.join('-');
-          if(prefix) neededPricing.add(prefix.toUpperCase());
+          neededBase.add(skuNoGrade.toUpperCase());
         }
       }
     }
-    // Identify columns in the mapping file
+    // Identify columns in the mapping file.  We assume the first column is the
+    // SKU key and the third column contains the English name.  A second
+    // column (if present) may contain additional names which we treat as
+    // synonyms.  If there are fewer than 3 columns, abort.
     const keys = Object.keys(mapRows[0] || {});
-    if(keys.length < 2) return;
-    // Determine the pricing_sku column
-    let mapPricingCol = null;
-    for(const k of keys){ if(/pricing\s*_?sku/i.test(k)) { mapPricingCol = k; break; } }
-    // If no pricing_sku column, fall back to 'pricing sku' or the last column
-    if(!mapPricingCol){
-      // fallback to the last column if there are at least 3 columns
-      if(keys.length >= 3) mapPricingCol = keys[keys.length - 1];
-      else mapPricingCol = keys[0];
-    }
-    // Determine name columns: choose columns that likely contain English names. Exclude any columns
-    // that appear to be SKU identifiers (contain 'sku' in the key) and exclude the pricing column.
-    let mapNameCol1 = null;
-    let mapNameCol2 = null;
-    // Build list of candidate name columns excluding pricing column and any column whose name includes 'sku'
-    const nameCandidates = keys.filter(k => {
-      if(k === mapPricingCol) return false;
-      // Exclude SKU-like columns (case-insensitive)
-      return !/sku/i.test(k);
-    });
-    if(nameCandidates.length > 0) mapNameCol1 = nameCandidates[0];
-    if(nameCandidates.length > 1) mapNameCol2 = nameCandidates[1];
-    // Build NAME_MAP from mapping rows, keyed by pricing_sku
+    if(keys.length < 3) return;
+    const mapSkuCol = keys[0];
+    const mapSynCol = keys[1];
+    const mapNameCol = keys[2];
     for(const row of mapRows){
-      const psField = row[mapPricingCol];
-      if(!psField) continue;
-      const ps = String(psField).trim();
-      if(!ps) continue;
-      const psUpper = ps.toUpperCase();
-      // Only include mapping entries for pricing_sku prefixes present in the dataset
-      if(neededPricing.size > 0 && !neededPricing.has(psUpper)) continue;
+      const skuField = row[mapSkuCol];
+      if(!skuField) continue;
+      const skuKey = String(skuField).trim();
+      if(!skuKey) continue;
+      const keyUpper = skuKey.toUpperCase();
+      if(neededBase.size > 0 && !neededBase.has(keyUpper)) continue;
       const names = [];
-      if(mapNameCol1){
-        const val = row[mapNameCol1];
-        if(val != null){ const n = String(val).trim(); if(n) names.push(n); }
+      // Primary English name from the third column
+      if(mapNameCol){
+        const val = row[mapNameCol];
+        if(val != null){
+          const n = String(val).trim();
+          if(n) names.push(n);
+        }
       }
-      if(mapNameCol2){
-        const val2 = row[mapNameCol2];
+      // Secondary names from the second column (split on | or ,)
+      if(mapSynCol){
+        const val2 = row[mapSynCol];
         if(val2 != null){
           const s = String(val2).trim();
           if(s){
             s.split(/[|,]/).forEach(part => {
-              const p = String(part).trim(); if(p) names.push(p);
+              const p = String(part).trim();
+              if(p) names.push(p);
             });
           }
         }
       }
       if(!names.length) continue;
-      if(!NAME_MAP[psUpper]){
-        NAME_MAP[psUpper] = { canonical: names[0], synonyms: new Set(names) };
+      if(!NAME_MAP[keyUpper]){
+        NAME_MAP[keyUpper] = { canonical: names[0], synonyms: new Set(names) };
       } else {
-        const set = NAME_MAP[psUpper].synonyms;
+        const set = NAME_MAP[keyUpper].synonyms;
         names.forEach(n => { set.add(n); });
       }
     }
     // Build synonym reverse lookup: lower-case name -> canonical
-    for(const ps in NAME_MAP){
-      if(!Object.prototype.hasOwnProperty.call(NAME_MAP, ps)) continue;
-      const canonical = NAME_MAP[ps].canonical;
-      const syns = NAME_MAP[ps].synonyms;
+    for(const bs in NAME_MAP){
+      if(!Object.prototype.hasOwnProperty.call(NAME_MAP, bs)) continue;
+      const canonical = NAME_MAP[bs].canonical;
+      const syns = NAME_MAP[bs].synonyms;
       for(const syn of syns){
         const key = String(syn).trim().toLowerCase();
         if(!SYNONYM_MAP[key]) SYNONYM_MAP[key] = canonical;
@@ -650,6 +672,68 @@ CA_B2B_Boxed\tCA`;
     if(C && t.toUpperCase().includes(C)) t = t.replace(new RegExp(C,'i'),'').trim();
     t = t.replace(/-(W|WP|A|B|C|Z|DX)\b/i,'').trim(); t = t.replace(/\s{2,}/g,' '); return t;
   }
+
+  // Remove the grade suffix from a SKU.  If a grade code is provided, remove
+  // that specific code; otherwise remove the last segment if it matches any
+  // known grade code.  Supports both one- and two-letter grade codes (W, WP,
+  // A, B, C, Z, DX, etc.).  See the unified definition earlier in the file.
+  function removeGradeFromSku(sku, grade){
+    if(!sku) return '';
+    const s = String(sku).trim();
+    const parts = s.split('-');
+    if(parts.length === 0) return s;
+    const g = grade ? String(grade).toUpperCase() : null;
+    const lastSeg = parts[parts.length - 1].toUpperCase();
+    if(g && lastSeg === g){
+      return parts.slice(0, parts.length - 1).join('-');
+    }
+    if(/^(W|WP|A|B|C|Z|DX|D|F|AS|CP|NB)$/.test(lastSeg)){
+      return parts.slice(0, parts.length - 1).join('-');
+    }
+    return s;
+  }
+
+  /**
+   * Determine the appropriate network descriptor for Apple Watch models based on
+   * the device generation (derived from the model string), variant code, and a
+   * binary network flag ("wifi" or "cellular").  This helper is used when
+   * falling back to dataset fields to build a header name for wearables.  The
+   * variantCode parameter should be the alphanumeric code found near the end
+   * of the SKU (e.g. A3003, A3206, A2156, A2475, etc.).  The rules are:
+   *   - For WiFi devices, always return "WiFi".
+   *   - For Series 10 devices with variant codes starting with A32, return
+   *     "Cellular" (China region watches).
+   *   - For Series 5 devices: variant A2156 -> "Cellular", otherwise
+   *     "GPS/Cellular".
+   *   - Series 4 devices return "Cellular".
+   *   - Series 7 devices: variant codes A2475 or A2477 (North America)
+   *     return "Cellular", other codes return "WiFi & Cellular".
+   *   - Series 6 and Series 9 devices return "WiFi & Cellular".
+   *   - All other wearables default to "WiFi & Cellular".
+   */
+  function watcherNetworkText(model, variantCode, networkFlag){
+    if(networkFlag === 'wifi') return 'WiFi';
+    const m = String(model||'').toLowerCase();
+    const v = String(variantCode||'').toUpperCase();
+    // Series 10 China variant codes (A3206*)
+    if(/^A32/.test(v)) return 'Cellular';
+    // Series 5 variants
+    if(/series 5/.test(m)){
+      if(/^A2156/.test(v)) return 'Cellular';
+      return 'GPS/Cellular';
+    }
+    // Series 4
+    if(/series 4/.test(m)) return 'Cellular';
+    // Series 7
+    if(/series 7/.test(m)){
+      if(/^A2475/.test(v) || /^A2477/.test(v)) return 'Cellular';
+      return 'WiFi & Cellular';
+    }
+    // Series 6 or Series 9
+    if(/series 6/.test(m) || /series 9/.test(m)) return 'WiFi & Cellular';
+    // Default
+    return 'WiFi & Cellular';
+  }
   function buildHeader(row, colModel, colGrade, colCapacity){
     // For the iPad & Wearables tool, attempt to derive the model/grade using the SKU name mapping if available.
     // If a SKU column exists and a mapping is loaded, derive the canonical English name and grade from the SKU.
@@ -675,34 +759,16 @@ CA_B2B_Boxed\tCA`;
               if(!gradeCode){
                 gradeCode = getGradeFromSku(sku);
               }
-              // Build display name: include all synonyms if multiple exist
-              let nameToUse = canonical;
-              const syns = getSynonymsFromSku(sku);
-              if(syns && syns.length > 1){
-                // Remove any grade suffix from synonyms and deduplicate
-                const cleaned = [];
-                const seenNames = new Set();
-                for(const s of syns){
-                  let nm = String(s||'').replace(GRADE_SUFFIX_RE,'').trim();
-                  if(!nm) continue;
-                  if(!seenNames.has(nm.toLowerCase())){
-                    seenNames.add(nm.toLowerCase());
-                    cleaned.push(nm);
-                  }
-                }
-                if(cleaned.length){
-                  nameToUse = cleaned.join(' / ');
-                }
-              }
-              const headerName = nameToUse + (gradeCode ? '-' + gradeCode : '');
+              // Simply use the canonical English name from the mapping and append the grade.
+              const headerName = canonical + (gradeCode ? '-' + gradeCode : '');
               return headerName;
             }
           }
         }
       }catch(err){ /* ignore and fall back */ }
     }
-    // Fallback: use original buildHeader logic (remove capacity and grade from model column)
-    const m = colModel? row[colModel]: '';
+    // Fallback: derive header from dataset fields (Model, Capacity, Network) rather than using smartphone logic
+    const modelVal = colModel ? String(row[colModel] || '').trim() : '';
     // Prefer grade from dataset column if available
     let g = '';
     if(colGrade){
@@ -713,22 +779,78 @@ CA_B2B_Boxed\tCA`;
       }
     }
     if(!g){
-      // Derive grade from SKU if column absent
+      // Derive grade from SKU suffix if dataset column absent
       try{
         const colSkuLocal = DATA.mapping?.colSku;
         if(colSkuLocal){
-          const sku = String(row[colSkuLocal]||'').trim();
+          const sku = String(row[colSkuLocal] || '').trim();
           if(sku){
             g = getGradeFromSku(sku) || '';
           }
         }
       }catch(e){}
     }
-    let cap = (colCapacity? String(row[colCapacity]||'').trim().toUpperCase(): ''); if(!cap) cap = extractCapacity(m);
-    const base = modelBase(m, cap, g);
-    let label = base;
-    if(cap) label += ' ' + cap;
-    if(g) label += '-' + g;
+    // Capacity from dataset, else attempt to extract from model string
+    let capVal = (colCapacity ? String(row[colCapacity] || '').trim().toUpperCase() : '');
+    if(!capVal) capVal = extractCapacity(modelVal);
+    // Determine category for fallback and build header accordingly
+    const colCategoryLocal = DATA.mapping?.colCategory;
+    const catRaw = colCategoryLocal ? String(row[colCategoryLocal] || '').trim() : '';
+    try{
+      if(/wearables/i.test(catRaw)){
+        // Fallback naming for wearables: use model, mm size (from Capacity column), and network derived from the dataset's network column.
+        const colNetworkLocal = DATA.mapping?.colNetwork;
+        // Determine network flag: treat entries mentioning 'wifi' or 'gps' without 'cellular' as wifi, others as cellular
+        let networkFlagFb = '';
+        if(colNetworkLocal){
+          const netRaw = String(row[colNetworkLocal] || '').trim();
+          if(/wifi|gps/i.test(netRaw) && !/cellular/i.test(netRaw)) networkFlagFb = 'wifi';
+          else if(netRaw) networkFlagFb = 'cellular';
+        }
+        // Derive mm size from capacity column (remove 'case size' text and extra whitespace)
+        let mmVal = '';
+        if(colCapacity){
+          const capRaw = row[colCapacity];
+          if(capRaw != null){
+            let capStr = String(capRaw).trim();
+            if(capStr){
+              capStr = capStr.replace(/case\s*size/i, '').trim();
+              mmVal = capStr;
+            }
+          }
+        }
+        // Normalize mm value: if ends with 'MM' or 'mm', ensure lowercase 'mm'
+        if(mmVal){
+          mmVal = mmVal.replace(/MM$/i, 'mm');
+        }
+        // Determine network name text
+        let networkNameWear = '';
+        if(networkFlagFb === 'cellular') networkNameWear = 'WiFi & Cellular';
+        else if(networkFlagFb === 'wifi') networkNameWear = 'WiFi';
+        let label = modelVal;
+        if(mmVal) label = label ? label + ' ' + mmVal : mmVal;
+        if(networkNameWear) label = label ? label + ' ' + networkNameWear : networkNameWear;
+        if(g) label = label ? label + '-' + g : '-' + g;
+        return label || 'Unknown Model';
+      }
+    }catch(e){ /* fall through */ }
+    // Fallback for tablets and other categories: derive network name from dataset network column
+    let networkFlagFb = '';
+    try{
+      const colNetwork = DATA.mapping?.colNetwork;
+      if(colNetwork){
+        const netRaw = String(row[colNetwork] || '').trim();
+        if(/unlocked|cellular/i.test(netRaw)) networkFlagFb = 'cellular';
+        else if(netRaw) networkFlagFb = 'wifi';
+      }
+    }catch(e){ networkFlagFb = ''; }
+    let networkName = '';
+    if(networkFlagFb === 'cellular') networkName = 'WiFi & Cellular';
+    else if(networkFlagFb === 'wifi') networkName = 'WiFi';
+    let label = modelVal;
+    if(capVal) label = label ? label + ' ' + capVal : capVal;
+    if(networkName) label = label ? label + ' ' + networkName : networkName;
+    if(g) label = label ? label + '-' + g : '-' + g;
     return label || 'Unknown Model';
   }
 
@@ -763,12 +885,23 @@ CA_B2B_Boxed\tCA`;
   // ORDER_ENTRIES stores user‑entered order quantities and offers keyed by the same composite key.
   let ORDER_ENTRIES = {};
 
+  // ===== Expansion state =====
+  // EXPANDED_ROWS tracks which aggregated rows are expanded to show per‑warehouse details.
+  // Keys are the same as those in AGG_MAP. A truthy value means the row is expanded.
+  let EXPANDED_ROWS = {};
+
   // ===== Needed pricing SKUs =====
   // After processing the dataset, this set will contain the pricing SKU prefixes (first
   // few segments of the SKU) that appear in the stock data. When loading a
   // large name mapping file, we can restrict processing to only those pricing
   // SKUs that are relevant for the current dataset to improve performance.
   let NEEDED_PRICING_SKUS = null;
+  // ===== Needed base SKUs (full SKU without grade) =====
+  // When processing the dataset we record the base SKU (full SKU minus the grade suffix) for
+  // each row. This allows the name mapping loader to restrict processing to only those
+  // base SKUs that actually appear in the dataset. Matching on the full base SKU rather
+  // than just the pricing prefix yields more accurate name matches.
+  let NEEDED_BASE_SKUS = null;
 
   // ===== Summary toggle =====
   // In this tool we always show summary rows only (no colour breakdown). Set to true by default.
@@ -794,6 +927,54 @@ CA_B2B_Boxed\tCA`;
   // Include all known grade codes found in the iPad/Wearables data (e.g., D, F, AS, CP, NB)
   const PURE_GRADE_RE = /^(?:W|WP|A|B|C|Z|DX|D|F|AS|CP|NB)$/i;
 
+  /**
+   * Canonicalize a model+grade string (from batch filter input) using the synonym
+   * mapping. Removes the grade suffix (e.g. '-W'), canonicalises the base name
+   * via SYNONYM_MAP, then appends the grade back. Returns the canonical name
+   * with grade, or the original cleaned string if no mapping applies. The
+   * comparison is case-insensitive.
+   *
+   * @param {string} mg The model+grade string from the batch file.
+   * @returns {string} The canonical model+grade string.
+   */
+  function canonicalizeModelGrade(mg){
+    if(!mg) return '';
+    let s = String(mg).trim().replace(/\s{2,}/g,' ');
+    if(!s) return '';
+    // Extract grade suffix if present
+    let grade = '';
+    const m = s.match(/-(W|WP|A|B|C|Z|DX|D|F|AS|CP|NB)\s*$/i);
+    if(m){ grade = m[1].toUpperCase(); s = s.slice(0, -m[0].length).trim(); }
+    const lowerBase = s.toLowerCase();
+    const canonical = SYNONYM_MAP[lowerBase] || s;
+    return grade ? (canonical + '-' + grade) : canonical;
+  }
+
+  /**
+   * Normalize a model+grade string into a lower-case key without applying the
+   * synonym mapping. This is used when matching batch entries to aggregated
+   * rows. The grade suffix (e.g. '-W') is separated and appended back. Any
+   * multiple spaces are condensed. The returned value is lower-case. If no
+   * grade suffix is present, returns null.
+   *
+   * Examples:
+   *   'iPad Pro 11 Inch 3rd Gen 256GB WiFi-W' -> 'ipad pro 11 inch 3rd gen 256gb wifi-w'
+   *   'iPad Pro 11 Inch 3rd Gen 256GB WiFi & Cellular-W' -> 'ipad pro 11 inch 3rd gen 256gb wifi & cellular-w'
+   *
+   * @param {string} mg The model+grade string.
+   * @returns {string|null} The normalized key (lower-case) or null if no grade suffix.
+   */
+  function normalizeModelGradeKey(mg){
+    if(!mg) return null;
+    let s = String(mg).trim().replace(/\s{2,}/g, ' ');
+    if(!s) return null;
+    const m = s.match(/-(W|WP|A|B|C|Z|DX|D|F|AS|CP|NB)\s*$/i);
+    if(!m) return null;
+    const grade = m[1].toUpperCase();
+    const base = s.slice(0, -m[0].length).trim();
+    return (base + '-' + grade).toLowerCase();
+  }
+
   // ===== Error helpers for model tokens =====
   function showTokenError(msg){ const el = document.getElementById('tokenError'); if(!el) return; el.textContent = msg; el.style.display = msg? 'block':'none'; }
   function clearTokenError(){ showTokenError(''); }
@@ -802,7 +983,106 @@ CA_B2B_Boxed\tCA`;
   (function bootFromSnapshot(){ try{ const node=$('#dataset'); if(node && node.textContent?.trim().length){ const json=JSON.parse(node.textContent); DATA=json; populateFilters(true); renderTable(); status(`Loaded snapshot: ${DATA.meta?.name||'dataset'} (rows: ${fmtInt(DATA.rows.length)})`); $('#btnExportXlsx').disabled=false; $('#btnExportView').disabled=false; $('#btnExportHTML').disabled=false; const up=$('#uploadRow'); if(up) up.remove(); } else { $('#regionMapBox').value = DEFAULT_REGION_MAP_TEXT; } }catch(e){ console.warn('Snapshot load failed',e); $('#regionMapBox').value = DEFAULT_REGION_MAP_TEXT; } })();
 
   // Read file (CSV/XLSX)
-  async function parseFile(file){ const buf=await file.arrayBuffer(); const wb=XLSX.read(buf,{type:'array'}); const ws=wb.Sheets[wb.SheetNames[0]]; return XLSX.utils.sheet_to_json(ws,{defval:'',raw:false}); }
+  /**
+   * Parse an uploaded file into an array of row objects. This helper now
+   * distinguishes between CSV and Excel formats to avoid partial parsing
+   * when using the XLSX library on large CSV files. When a CSV is
+   * detected (by file extension), the text is read directly and parsed
+   * using a simple comma‑separated parser that honours quoted fields
+   * (double quotes to escape commas or newlines). For other file types
+   * (e.g. .xlsx or .xls), the SheetJS library is used as before.
+   *
+   * @param {File} file The uploaded file
+   * @returns {Promise<Array<Object>>} Array of row objects with keys from the header row
+   */
+  async function parseFile(file){
+    const name = (file?.name||'').toLowerCase();
+    // Determine extension by the substring after the last dot
+    const ext = name.split('.').pop();
+    // Helper to parse a full CSV text into an array of rows. This parser
+    // handles newlines inside quoted fields by tracking quote state across
+    // line breaks. It follows RFC4180 conventions: fields may be
+    // enclosed in double quotes; a double quote appearing inside a quoted
+    // field is escaped by a second double quote.
+    function parseCsv(text){
+      const rows=[];
+      let cell='';
+      let row=[];
+      let inQuotes=false;
+      // Normalize line endings to LF
+      const str = text.replace(/\r\n/g,'\n').replace(/\r/g,'\n');
+      const len = str.length;
+      for(let i=0; i<len; i++){
+        const ch = str[i];
+        if(inQuotes){
+          if(ch==='"'){
+            // If next char is also a quote, this is an escaped quote
+            if(i+1 < len && str[i+1] === '"'){
+              cell += '"';
+              i++;
+            } else {
+              inQuotes = false;
+            }
+          } else {
+            cell += ch;
+          }
+        } else {
+          if(ch === '"'){
+            inQuotes = true;
+          } else if(ch === ','){
+            row.push(cell);
+            cell = '';
+          } else if(ch === '\n'){
+            row.push(cell);
+            cell = '';
+            rows.push(row);
+            row = [];
+          } else {
+            cell += ch;
+          }
+        }
+      }
+      // Add the last cell and row if there's any data remaining
+      if(cell !== '' || inQuotes || row.length){
+        row.push(cell);
+        rows.push(row);
+      }
+      return rows;
+    }
+    // If the file appears to be a CSV, read and parse it manually. This
+    // avoids the row limit some XLSX implementations impose when reading
+    // CSV through SheetJS and ensures all lines are processed.
+    if(ext==='csv' || ext==='txt'){ try{
+        const text = await file.text();
+        if(!text) return [];
+        // Remove potential BOM
+        const txt = text.replace(/^\uFEFF/, '');
+        const parsed = parseCsv(txt);
+        if(!parsed || parsed.length === 0) return [];
+        const headerCells = parsed[0];
+        const rows=[];
+        for(let i=1; i<parsed.length; i++){
+          const cells = parsed[i];
+          // Skip completely empty lines (all cells empty)
+          let allEmpty = true;
+          for(let j=0;j<cells.length;j++){ if(cells[j] && cells[j].trim()!== ''){ allEmpty = false; break; } }
+          if(allEmpty) continue;
+          const rowObj={};
+          for(let j=0;j<headerCells.length;j++){
+            const key = headerCells[j]||'';
+            rowObj[key] = cells[j]!==undefined ? cells[j] : '';
+          }
+          rows.push(rowObj);
+        }
+        return rows;
+      } catch(e){ console.error('CSV parse error', e); }
+    }
+    // Otherwise fall back to using SheetJS to parse Excel files or other formats
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf,{type:'array'});
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    return XLSX.utils.sheet_to_json(ws,{defval:'',raw:false});
+  }
 
   function deriveCountryFromMapping(row, colCountry, colLocation){
     let c = (colCountry? String(row[colCountry]||'').trim() : '');
@@ -845,7 +1125,10 @@ CA_B2B_Boxed\tCA`;
     // approximation of the pricing_sku. This set will be used when loading a
     // large name mapping file to limit processing to only relevant entries.
     if(colSku){
+      // Build the set of pricing SKU prefixes (first few segments) used by the dataset.
       NEEDED_PRICING_SKUS = new Set();
+      // Build the set of base SKUs (full SKU minus grade suffix) used by the dataset.
+      NEEDED_BASE_SKUS = new Set();
       for(const r of rows){
         const skuVal = r[colSku];
         if(!skuVal) continue;
@@ -853,8 +1136,17 @@ CA_B2B_Boxed\tCA`;
         if(!skuStr) continue;
         const parts = skuStr.split('-');
         const prefix = parts.length >= 5 ? parts.slice(0,5).join('-') : parts.join('-');
-        // Store prefix in upper‑case for case‑insensitive comparison
         NEEDED_PRICING_SKUS.add(prefix.toUpperCase());
+        // Remove grade suffix for base SKU
+        const last = parts[parts.length - 1].toUpperCase();
+        let baseParts;
+        if(/^(W|WP|A|B|C|Z|DX|D|F|AS|CP|NB)$/.test(last)){
+          baseParts = parts.slice(0, parts.length - 1);
+        } else {
+          baseParts = parts;
+        }
+        const baseSku = baseParts.join('-').toUpperCase();
+        NEEDED_BASE_SKUS.add(baseSku);
       }
     }
     for(const r of rows){
@@ -889,12 +1181,12 @@ CA_B2B_Boxed\tCA`;
       if(!gradeCode){
         gradeCode = getGradeFromSku(sku) || '';
       }
-      // Record a row for potential further use (include grade)
-      out.push({Country:country, Sim:sim, Header:header, Color:color, Category:category, Grade:gradeCode, QtyAvail:qtyAvail, QtyPre:qtyPre, Sku:sku, Loc:loc, Network:network, Variant:variant});
-      // Aggregate by Country, Sim, Header, Color, Category
-      const key=country+'\u0001'+sim+'\u0001'+header+'\u0001'+color+'\u0001'+category;
+      // Record a row for potential further use (include grade). Use an empty Color for aggregated items.
+      out.push({Country:country, Sim:sim, Header:header, Color:'', Category:category, Grade:gradeCode, QtyAvail:qtyAvail, QtyPre:qtyPre, Sku:sku, Loc:loc, Network:network, Variant:variant});
+      // Aggregate across all colours: key does not include colour.  Use Country, Sim, Header and Category.
+      const key=country+'\u0001'+sim+'\u0001'+header+'\u0001'+category;
       if(!map.has(key)){
-        map.set(key,{Country:country, Sim:sim, Header:header, Color:color, Category:category, Grade:gradeCode, QtyAvail:qtyAvail, QtyPre:qtyPre, Sku:sku, Loc:loc, Network:network, MaxQtyAvail:qtyAvail, rows:[{Sku:sku, Loc:loc, QtyAvail:qtyAvail, QtyPre:qtyPre, Variant:variant, Network:network, Grade:gradeCode}]});
+        map.set(key,{Country:country, Sim:sim, Header:header, Color:'', Category:category, Grade:gradeCode, QtyAvail:qtyAvail, QtyPre:qtyPre, Sku:sku, Loc:loc, Network:network, MaxQtyAvail:qtyAvail, rows:[{Sku:sku, Loc:loc, QtyAvail:qtyAvail, QtyPre:qtyPre, Variant:variant, Network:network, Grade:gradeCode, Color:color}]});
       } else {
         const agg=map.get(key);
         agg.QtyAvail += qtyAvail;
@@ -906,8 +1198,8 @@ CA_B2B_Boxed\tCA`;
           agg.Network = network;
           agg.MaxQtyAvail = qtyAvail;
         }
-        // Append underlying row details
-        agg.rows.push({Sku:sku, Loc:loc, QtyAvail:qtyAvail, QtyPre:qtyPre, Variant:variant, Network:network, Grade:gradeCode});
+        // Append underlying row details with colour
+        agg.rows.push({Sku:sku, Loc:loc, QtyAvail:qtyAvail, QtyPre:qtyPre, Variant:variant, Network:network, Grade:gradeCode, Color:color});
       }
     }
     // Build aggregated array
@@ -947,11 +1239,10 @@ CA_B2B_Boxed\tCA`;
         synonymsLower: synonymsLowerSet
       };
     }
-    // Sort by country, sim, header, colour, category for stable order
+    // Sort by country, sim, header and category for stable order (colour not used)
     agg.sort((a,b)=> a.Country.localeCompare(b.Country)
                     || a.Sim.localeCompare(b.Sim)
                     || a.Header.localeCompare(b.Header)
-                    || a.Color.localeCompare(b.Color)
                     || a.Category.localeCompare(b.Category));
     // Build meta lists for filters
     const countries=[...new Set(agg.map(r=>r.Country))].sort();
@@ -1234,193 +1525,172 @@ CA_B2B_Boxed\tCA`;
   }
 
   function renderTable(){
-    const rows=applyFilters(DATA.rows);
-    $('#rowsCount').textContent=rows.length.toLocaleString();
-    // Build nested structure: Country -> Header -> array of rows
-    const nest=new Map();
+    const rows = applyFilters(DATA.rows);
+    // Update count of aggregated rows shown
+    $('#rowsCount').textContent = rows.length.toLocaleString();
+    // Group by country and then header
+    const byCountry = new Map();
     for(const r of rows){
-      const k1=r.Country, k2=r.Header;
-      if(!nest.has(k1)) nest.set(k1,new Map());
-      const m2=nest.get(k1);
-      if(!m2.has(k2)) m2.set(k2,[]);
-      m2.get(k2).push(r);
+      if(!byCountry.has(r.Country)) byCountry.set(r.Country, new Map());
+      const m = byCountry.get(r.Country);
+      if(!m.has(r.Header)) m.set(r.Header, []);
+      m.get(r.Header).push(r);
     }
-    let html='';
-    const countries=[...nest.keys()].sort();
+    let html = '';
+    const countries = [...byCountry.keys()].sort();
     for(const country of countries){
       html += `<div class="section"><div class="chip">Country: <strong style="margin-left:6px">${country}</strong></div>`;
-      html += `<table><thead><tr><th>Item</th><th class="right">Qty</th>`;
-      // Always include order and offer columns along with an action column, even in summary mode
-      html += `<th class="right">Order Qty</th><th class="right">Offer</th><th></th>`;
+      html += `<table><thead><tr>`;
+      html += `<th>Item</th><th class="right">Qty</th><th class="right">Order Qty</th><th class="right">Offer</th><th></th>`;
       html += `</tr></thead><tbody>`;
-      let grand=0;
-      const headers=[...nest.get(country).keys()].sort();
+      let grand = 0;
+      const headers = [...byCountry.get(country).keys()].sort();
       for(const hdr of headers){
-        const rowsForHdr = nest.get(country).get(hdr);
-        // Compute subtotal across colours
-        let subtotal=0;
-        for(const row of rowsForHdr){ subtotal += row.Qty; }
-        grand += subtotal;
-        // Model header row
-        html += `<tr><td><strong>${hdr}</strong></td><td class="right"><strong>${fmtInt(subtotal)}</strong></td>`;
-        // Determine aggregated offer: if all underlying colour rows have the same offer, show it; otherwise leave blank
-        let aggregatedOffer = '';
-        const offerVals = [];
-        for(const row of rowsForHdr){
-          const ent = ORDER_ENTRIES[row.Key];
-          if(ent && ent.offer != null && String(ent.offer).trim() !== ''){
-            offerVals.push(String(ent.offer).trim());
+        const list = byCountry.get(country).get(hdr);
+        // There may be multiple aggregated rows per header (e.g., different categories). Iterate each.
+        for(const row of list){
+          const qty = row.Qty;
+          grand += qty;
+          const key = row.Key;
+          const ent = ORDER_ENTRIES[key] || {};
+          const orderQty = (ent.qty != null && ent.qty !== 0) ? ent.qty : '';
+          const offerVal = (ent.offer != null && String(ent.offer).trim() !== '') ? ent.offer : '';
+          const expanded = !!EXPANDED_ROWS[key];
+          const arrow = expanded ? '▼' : '▶';
+          html += `<tr>`;
+          html += `<td>`;
+          // Expander icon
+          html += `<span class="expander" data-key="${key}" style="cursor:pointer;margin-right:4px">${arrow}</span>`;
+          html += `<strong>${hdr}</strong>`;
+          html += `</td>`;
+          html += `<td class="right">${fmtInt(qty)}</td>`;
+          html += `<td class="right"><input type="number" class="orderQty" data-key="${key}" min="0" max="${qty}" value="${orderQty}" style="width:80px"></td>`;
+          html += `<td class="right"><input type="number" class="orderOffer" data-key="${key}" min="0" step="0.01" value="${offerVal}" style="width:80px"></td>`;
+          html += `<td class="right"><button type="button" class="takeAll" data-key="${key}" style="padding:4px 8px;font-size:12px">All</button></td>`;
+          html += `</tr>`;
+          // If expanded, render per‑warehouse rows
+          if(expanded){
+            const agg = AGG_MAP[key];
+            if(agg && agg.rows && agg.rows.length){
+              for(let idx=0; idx < agg.rows.length; idx++){
+                const it = agg.rows[idx];
+                const qEff = it.QtyAvail + (PREORDER_INCLUDE ? it.QtyPre : 0);
+                if(qEff <= 0) continue;
+                const subKey = key + '\u0002' + idx;
+                const subEnt = ORDER_ENTRIES[subKey] || {};
+                const subQty = (subEnt.qty != null && subEnt.qty !== 0) ? subEnt.qty : '';
+                html += `<tr>`;
+                html += `<td class="indent">${it.Loc || it.Sku || ''}</td>`;
+                html += `<td class="right">${fmtInt(qEff)}</td>`;
+                html += `<td class="right"><input type="number" class="orderQtyWarehouse" data-key="${key}" data-idx="${idx}" min="0" max="${qEff}" value="${subQty}" style="width:80px"></td>`;
+                html += `<td class="right"></td>`;
+                html += `<td></td>`;
+                html += `</tr>`;
+              }
+            }
           }
-        }
-        if(offerVals.length > 0 && offerVals.every(v => v === offerVals[0])){
-          aggregatedOffer = offerVals[0];
-        }
-        // For summary mode we still allow order quantity and offer input on header row. The order quantity input will set the quantity on
-        // the aggregated row (colour breakdown hidden) and the offer applies to all underlying colours.
-        // Determine aggregated order quantity: if all underlying colour rows have the same order qty, show it; otherwise leave blank
-        let aggregatedQty = '';
-        const qtyVals = [];
-        for(const row of rowsForHdr){
-          const ent = ORDER_ENTRIES[row.Key];
-          if(ent && ent.qty != null && ent.qty !== ''){
-            qtyVals.push(String(ent.qty).trim());
-          }
-        }
-        if(qtyVals.length > 0 && qtyVals.every(v => v === qtyVals[0])){
-          aggregatedQty = qtyVals[0];
-        }
-        html += `<td class="right"><input type="number" class="orderQtyHeader" data-country="${country}" data-hdr="${hdr}" min="0" max="${subtotal}" value="${aggregatedQty}" style="width:80px"></td>`;
-        html += `<td class="right"><input type="number" class="orderOfferHeader" data-country="${country}" data-hdr="${hdr}" step="0.01" value="${aggregatedOffer}" style="width:80px"></td>`;
-        html += `<td class="right"><button type="button" class="takeAllHeader" data-country="${country}" data-hdr="${hdr}" style="padding:4px 8px;font-size:12px">All</button></td>`;
-        html += `</tr>`;
-        if(!SHOW_SUMMARY_ONLY){
-          // Colour-level rows are not shown in this tool. The conditional is retained for clarity.
-          const sortedRows = rowsForHdr.slice().sort((a,b)=> a.Color.localeCompare(b.Color));
-          for(const row of sortedRows){
-            const qty = row.Qty;
-            const key = row.Key;
-            const entry = ORDER_ENTRIES[key] || {};
-            const orderQty = entry.qty != null ? entry.qty : '';
-            const offerVal = entry.offer != null ? entry.offer : '';
-            html += `<tr>`;
-            html += `<td class="indent">${row.Color}</td>`;
-            html += `<td class="right">${fmtInt(qty)}</td>`;
-            html += `<td class="right"><input type="number" class="orderQty" data-key="${key}" min="0" max="${qty}" value="${orderQty}" style="width:80px"></td>`;
-            html += `<td class="right"><input type="number" class="orderOffer" data-key="${key}" min="0" step="0.01" value="${offerVal}" style="width:80px"></td>`;
-            html += `<td class="right"><button type="button" class="takeAll" data-key="${key}" style="padding:4px 8px;font-size:12px">All</button></td>`;
-            html += `</tr>`;
-          }
-          // Spacer row between models (colspan across all columns)
-          html += `<tr><td colspan="5"></td></tr>`;
         }
       }
-      // Total row
+      // Total row per country
       html += `<tr class="total"><td>Total</td><td class="right">${fmtInt(grand)}</td><td></td><td></td><td></td></tr>`;
       html += `</tbody></table></div>`;
     }
     $('#table').innerHTML = html || '<div class="muted">No rows after filters.</div>';
-    // After rendering, attach event handlers for order inputs and take all buttons
+    // After rendering, attach handlers for order inputs and expanders
     attachOrderHandlers();
+    attachExpanders();
   }
 
   // Attach event handlers for order quantity/offer inputs and take‑all buttons
   function attachOrderHandlers(){
-    // Clear existing ORDER_ENTRIES keys for rows that no longer exist (to avoid stale entries)
-    for(const k in ORDER_ENTRIES){ if(!AGG_MAP[k]) delete ORDER_ENTRIES[k]; }
-    // Attach input handlers
-    document.querySelectorAll('input.orderQty').forEach(inp=>{
-      inp.oninput = (e)=>{
+    // Remove stale ORDER_ENTRIES keys: both aggregated keys and per‑warehouse keys
+    for(const k in ORDER_ENTRIES){
+      const parts = k.split('\u0002');
+      const baseKey = parts[0];
+      if(!AGG_MAP[baseKey]) delete ORDER_ENTRIES[k];
+    }
+    // Handlers for aggregated row order quantity inputs
+    document.querySelectorAll('input.orderQty').forEach(inp => {
+      inp.oninput = (e) => {
         const key = e.target.dataset.key;
-        let qty = parseInt(e.target.value,10);
-        if(!isFinite(qty) || qty<0) qty = 0;
+        let qty = parseInt(e.target.value, 10);
+        if(!isFinite(qty) || qty < 0) qty = 0;
         if(!ORDER_ENTRIES[key]) ORDER_ENTRIES[key] = {qty:0, offer:''};
         ORDER_ENTRIES[key].qty = qty;
+        // Clear any per‑warehouse orders for this aggregated key
+        const agg = AGG_MAP[key];
+        if(agg && agg.rows){
+          for(let i = 0; i < agg.rows.length; i++){
+            const subKey = key + '\u0002' + i;
+            if(ORDER_ENTRIES[subKey]) delete ORDER_ENTRIES[subKey];
+          }
+        }
         updateOrderButtons();
       };
     });
-    document.querySelectorAll('input.orderOffer').forEach(inp=>{
-      inp.oninput = (e)=>{
+    // Handlers for aggregated row offer inputs
+    document.querySelectorAll('input.orderOffer').forEach(inp => {
+      inp.oninput = (e) => {
         const key = e.target.dataset.key;
         const offer = e.target.value;
         if(!ORDER_ENTRIES[key]) ORDER_ENTRIES[key] = {qty:0, offer:''};
         ORDER_ENTRIES[key].offer = offer;
+        // Propagate offer to any per‑warehouse orders
+        const agg = AGG_MAP[key];
+        if(agg && agg.rows){
+          for(let i = 0; i < agg.rows.length; i++){
+            const subKey = key + '\u0002' + i;
+            if(!ORDER_ENTRIES[subKey]) ORDER_ENTRIES[subKey] = {qty:0, offer:''};
+            ORDER_ENTRIES[subKey].offer = offer;
+          }
+        }
         updateOrderButtons();
       };
     });
-    document.querySelectorAll('button.takeAll').forEach(btn=>{
-      btn.onclick = (e)=>{
+    // Handlers for aggregated row 'All' buttons
+    document.querySelectorAll('button.takeAll').forEach(btn => {
+      btn.onclick = (e) => {
         const key = e.target.dataset.key;
-        const row = AGG_MAP[key]; if(!row) return;
-        // Effective qty (respecting preorder include/exclude)
-        const qtyEff = row.QtyAvail + (PREORDER_INCLUDE? row.QtyPre : 0);
-        const inp = document.querySelector(`input.orderQty[data-key="${key}"]`);
-        if(inp){ inp.value = qtyEff; if(!ORDER_ENTRIES[key]) ORDER_ENTRIES[key] = {qty:0, offer:''}; ORDER_ENTRIES[key].qty = qtyEff; updateOrderButtons(); }
-      };
-    });
-    // Update button enabled state
-    updateOrderButtons();
-
-    // ----- New handlers for model-grade header offer and All buttons -----
-    // When user edits the offer on a model-grade header row, propagate to all underlying colour rows
-    document.querySelectorAll('input.orderOfferHeader').forEach(inp=>{
-      inp.oninput = (e)=>{
-        const country = e.target.dataset.country;
-        const hdr = e.target.dataset.hdr;
-        const val = e.target.value;
-        // Update offers for all aggregated rows that match this country and header
-        for(const key in AGG_MAP){
-          const agg = AGG_MAP[key];
-          if(agg && agg.Country === country && agg.Header === hdr){
-            if(!ORDER_ENTRIES[key]) ORDER_ENTRIES[key] = {qty:0, offer:''};
-            ORDER_ENTRIES[key].offer = val;
-          }
-        }
-        // Re-render table asynchronously to reflect changes
-        setTimeout(()=>{ renderTable(); },0);
-      };
-    });
-    // When user edits the quantity on a model-grade header row, propagate the value to all underlying colour rows.
-    document.querySelectorAll('input.orderQtyHeader').forEach(inp=>{
-      inp.oninput = (e)=>{
-        const country = e.target.dataset.country;
-        const hdr = e.target.dataset.hdr;
-        let qtyVal = parseInt(e.target.value, 10);
-        if(!isFinite(qtyVal) || qtyVal < 0) qtyVal = 0;
-        for(const key in AGG_MAP){
-          const agg = AGG_MAP[key];
-          if(agg && agg.Country === country && agg.Header === hdr){
-            // Limit quantity to available quantity for this aggregated key
-            const qtyEff = agg.QtyAvail + (PREORDER_INCLUDE ? agg.QtyPre : 0);
-            const setQty = qtyVal > qtyEff ? qtyEff : qtyVal;
-            if(!ORDER_ENTRIES[key]) ORDER_ENTRIES[key] = {qty:0, offer:''};
-            ORDER_ENTRIES[key].qty = setQty;
-          }
-        }
-        // Re-render to update aggregated quantity display
-        setTimeout(()=>{ renderTable(); },0);
-      };
-    });
-    // When user clicks the All button on a model-grade header row, set all colour rows to max and propagate offer
-    document.querySelectorAll('button.takeAllHeader').forEach(btn=>{
-      btn.onclick = (e)=>{
-        const country = e.target.dataset.country;
-        const hdr = e.target.dataset.hdr;
-        // Determine offer from the corresponding header input
-        const priceInput = document.querySelector(`input.orderOfferHeader[data-country="${country}"][data-hdr="${hdr}"]`);
+        const agg = AGG_MAP[key]; if(!agg) return;
+        const qtyEff = agg.QtyAvail + (PREORDER_INCLUDE ? agg.QtyPre : 0);
+        // Determine price from the corresponding offer input
+        const priceInput = document.querySelector(`input.orderOffer[data-key="${key}"]`);
         const priceVal = priceInput ? priceInput.value : '';
-        for(const key in AGG_MAP){
-          const agg = AGG_MAP[key];
-          if(agg && agg.Country === country && agg.Header === hdr){
-            const qtyEff = agg.QtyAvail + (PREORDER_INCLUDE ? agg.QtyPre : 0);
-            if(!ORDER_ENTRIES[key]) ORDER_ENTRIES[key] = {qty:0, offer:''};
-            ORDER_ENTRIES[key].qty = qtyEff;
-            ORDER_ENTRIES[key].offer = priceVal;
+        if(!ORDER_ENTRIES[key]) ORDER_ENTRIES[key] = {qty: 0, offer: ''};
+        ORDER_ENTRIES[key].qty = qtyEff;
+        ORDER_ENTRIES[key].offer = priceVal;
+        // Clear per‑warehouse entries
+        if(agg.rows){
+          for(let i = 0; i < agg.rows.length; i++){
+            const subKey = key + '\u0002' + i;
+            if(ORDER_ENTRIES[subKey]) delete ORDER_ENTRIES[subKey];
           }
         }
-        // Re-render to update the inputs
-        setTimeout(()=>{ renderTable(); },0);
+        // Update button state and re-render
+        updateOrderButtons();
+        setTimeout(() => { renderTable(); }, 0);
       };
     });
+    // Handlers for per‑warehouse order quantity inputs
+    document.querySelectorAll('input.orderQtyWarehouse').forEach(inp => {
+      inp.oninput = (e) => {
+        const key = e.target.dataset.key;
+        const idx = e.target.dataset.idx;
+        let qty = parseInt(e.target.value, 10);
+        if(!isFinite(qty) || qty < 0) qty = 0;
+        const subKey = key + '\u0002' + idx;
+        if(!ORDER_ENTRIES[subKey]) ORDER_ENTRIES[subKey] = {qty:0, offer:''};
+        ORDER_ENTRIES[subKey].qty = qty;
+        // Set offer for warehouse row from aggregated row
+        const parent = ORDER_ENTRIES[key];
+        if(parent && parent.offer != null){ ORDER_ENTRIES[subKey].offer = parent.offer; }
+        // Clear aggregated quantity for this row
+        if(ORDER_ENTRIES[key]) ORDER_ENTRIES[key].qty = 0;
+        updateOrderButtons();
+      };
+    });
+    // Finally update the state of export buttons
+    updateOrderButtons();
   }
 
   function updateOrderButtons(){
@@ -1659,13 +1929,37 @@ CA_B2B_Boxed\tCA`;
     const rows = applyFilters(DATA.rows);
     for(const r of rows){
       const qtyEff = r.QtyAvail + (PREORDER_INCLUDE ? r.QtyPre : 0);
-      if(!ORDER_ENTRIES[r.Key]) ORDER_ENTRIES[r.Key] = {qty:0, offer:''};
+      if(!ORDER_ENTRIES[r.Key]) ORDER_ENTRIES[r.Key] = {qty: 0, offer: ''};
       ORDER_ENTRIES[r.Key].qty = qtyEff;
+      // Clear any per-warehouse orders for this aggregated key to avoid double-counting
+      const agg = AGG_MAP[r.Key];
+      if(agg && agg.rows){
+        for(let i = 0; i < agg.rows.length; i++){
+          const subKey = r.Key + '\u0002' + i;
+          if(ORDER_ENTRIES[subKey]) delete ORDER_ENTRIES[subKey];
+        }
+      }
       // Do not override existing offer values
     }
+    // After updating quantities, re-render and update buttons
     renderTable();
+    updateOrderButtons();
     status('All filtered items set to maximum quantity');
   });
+
+  // Attach expander click handlers for aggregated rows. Clicking toggles
+  // whether the row shows its per‑warehouse details. Uses EXPANDED_ROWS to
+  // track state.
+  function attachExpanders(){
+    document.querySelectorAll('.expander').forEach(exp => {
+      exp.onclick = (e) => {
+        const key = e.target.dataset.key;
+        if(!key) return;
+        EXPANDED_ROWS[key] = !EXPANDED_ROWS[key];
+        renderTable();
+      };
+    });
+  }
 
   // Name map loader: parse a name mapping file (pricing SKU -> English name) and apply it to the existing dataset.
   document.getElementById('btnNameMap')?.addEventListener('click', async () => {
@@ -1699,43 +1993,80 @@ CA_B2B_Boxed\tCA`;
       const rows = await parseFile(file);
       if(!rows || !rows.length){ alert('Batch file is empty'); return; }
       // Determine column order: first column => region, second => model grade, third => offer (if present)
-      const keys = Object.keys(rows[0]||{});
+      const keys = Object.keys(rows[0] || {});
       if(keys.length < 2){ alert('Batch file must have at least two columns (Region and Model Grade)'); return; }
       const colRegion = keys[0];
       const colModelGrade = keys[1];
       const colOffer = keys.length > 2 ? keys[2] : null;
-      // Reset batch filter sets
+      // Reset batch filter set and offers
       BATCH_SET.clear();
       const batchOffers = new Map();
-      // Build sets and offer map
+      // Temporary storage of mg entries keyed by region and normalized mgLower (without synonym canonicalisation)
+      const entries = [];
       rows.forEach(r => {
-        const region = String(r[colRegion]||'').trim().toUpperCase();
-        const mg = String(r[colModelGrade]||'').trim();
-        if(!region || !mg) return;
-        const mgClean = mg.replace(/\s{2,}/g,' ').trim();
-        const keyPair = region + '\t' + mgClean.toLowerCase();
-        BATCH_SET.add(keyPair);
+        const region = String(r[colRegion] || '').trim().toUpperCase();
+        const mgRaw = String(r[colModelGrade] || '').trim();
+        if(!region || !mgRaw) return;
+        const mgLower = normalizeModelGradeKey(mgRaw);
+        if(!mgLower) return;
+        entries.push({region, mgLower});
         if(colOffer){
           const offerVal = r[colOffer];
           if(offerVal != null && String(offerVal).trim() !== ''){
-            batchOffers.set(keyPair, String(offerVal).trim());
+            const offerKey = region + '\t' + mgLower;
+            batchOffers.set(offerKey, String(offerVal).trim());
           }
         }
       });
-      // Apply batch filter: set quantities and offers on matching aggregated rows
-      for(const r of DATA.rows){
-        const keyPair = String(r.Country||'').toUpperCase() + '\t' + String(r.Header||'').toLowerCase();
-        if(BATCH_SET.has(keyPair)){
-          const qtyEff = r.QtyAvail + (PREORDER_INCLUDE ? r.QtyPre : 0);
-          if(!ORDER_ENTRIES[r.Key]) ORDER_ENTRIES[r.Key] = {qty:0, offer:''};
-          ORDER_ENTRIES[r.Key].qty = qtyEff;
-          if(batchOffers.has(keyPair)){
-            ORDER_ENTRIES[r.Key].offer = batchOffers.get(keyPair);
-          }
+      // Build a lookup from mgLower to aggregated row keys using synonymsLower and grade
+      const mgLookup = new Map();
+      for(const row of DATA.rows){
+        const g = (row.Grade || '').toUpperCase();
+        const syns = (AGG_MAP[row.Key] && AGG_MAP[row.Key].synonymsLower) ? AGG_MAP[row.Key].synonymsLower : new Set();
+        // If no synonyms, still use base header without grade
+        if(syns.size === 0){
+          const base = row.Header.replace(GRADE_SUFFIX_RE, '').trim().toLowerCase();
+          syns.add(base);
+        }
+        for(const base of syns){
+          const mgKey = base + '-' + g.toLowerCase();
+          if(!mgLookup.has(mgKey)) mgLookup.set(mgKey, []);
+          mgLookup.get(mgKey).push(row);
         }
       }
+      // For each entry, find matching rows and apply quantity/offer
+      let matchedCount = 0;
+      for(const {region, mgLower} of entries){
+        const matches = mgLookup.get(mgLower);
+        if(!matches) continue;
+        for(const r of matches){
+          if(String(r.Country || '').toUpperCase() !== region) continue;
+          const qtyEff = r.QtyAvail + (PREORDER_INCLUDE ? r.QtyPre : 0);
+          if(!ORDER_ENTRIES[r.Key]) ORDER_ENTRIES[r.Key] = {qty: 0, offer: ''};
+          ORDER_ENTRIES[r.Key].qty = qtyEff;
+          // Clear per-warehouse entries for this aggregated key
+          const agg = AGG_MAP[r.Key];
+          if(agg && agg.rows){
+            for(let i = 0; i < agg.rows.length; i++){
+              const subKey = r.Key + '\u0002' + i;
+              if(ORDER_ENTRIES[subKey]) delete ORDER_ENTRIES[subKey];
+            }
+          }
+          // Set offer if provided
+          const offerKey = region + '\t' + mgLower;
+          if(batchOffers.has(offerKey)){
+            ORDER_ENTRIES[r.Key].offer = batchOffers.get(offerKey);
+          }
+          // Record pair in BATCH_SET for filtering
+          const pair = region + '\t' + String(r.Header || '').toLowerCase();
+          BATCH_SET.add(pair);
+          matchedCount++;
+        }
+      }
+      // After applying, re-render and update buttons
       renderTable();
-      status(`Batch filter loaded (${BATCH_SET.size.toLocaleString()} pairs)`);
+      updateOrderButtons();
+      status(`Batch filter loaded (${matchedCount.toLocaleString()} matches, ${BATCH_SET.size.toLocaleString()} unique pairs)`);
     }catch(err){
       console.error(err);
       alert('Failed to load batch filter: ' + (err.message || String(err)));
