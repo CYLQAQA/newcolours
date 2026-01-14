@@ -1,0 +1,1047 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📱 Phone List Splitter</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            background: #f0f0f0;
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            padding: 30px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .title {
+            font-size: 28px;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            font-size: 14px;
+            color: #7f8c8d;
+        }
+
+        .file-section {
+            border: 2px solid #34495e;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            background: #f8f9fa;
+        }
+
+        .section-title {
+            font-size: 16px;
+            font-weight: bold;
+            color: #34495e;
+            margin-bottom: 15px;
+        }
+
+        .file-group {
+            margin-bottom: 15px;
+        }
+
+        .file-label {
+            font-size: 14px;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 8px;
+            display: block;
+        }
+
+        .file-input-group {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 8px;
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        .file-button {
+            background: #3498db;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: background 0.3s;
+        }
+
+        .file-button:hover {
+            background: #2980b9;
+        }
+
+        .file-button.usd {
+            background: #f39c12;
+        }
+
+        .file-button.usd:hover {
+            background: #e67e22;
+        }
+
+        .skip-button {
+            background: #95a5a6;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: background 0.3s;
+        }
+
+        .skip-button:hover {
+            background: #7f8c8d;
+        }
+
+        .file-status {
+            font-size: 12px;
+            color: #7f8c8d;
+        }
+
+        .file-status.selected {
+            color: #27ae60;
+        }
+
+        .file-status.skipped {
+            color: #f39c12;
+        }
+
+        .controls {
+            margin-bottom: 20px;
+        }
+
+        .checkbox-group {
+            margin-bottom: 15px;
+        }
+
+        .checkbox-group input {
+            margin-right: 8px;
+        }
+
+        .button-group {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .process-button {
+            background: #27ae60;
+            color: white;
+            padding: 15px 40px;
+            border: none;
+            border-radius: 8px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.3s;
+            border: 3px solid transparent;
+        }
+
+        .process-button:hover {
+            background: #229954;
+        }
+
+        .process-button:disabled {
+            background: #bdc3c7;
+            cursor: not-allowed;
+        }
+
+        .exit-button {
+            background: #e74c3c;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s;
+        }
+
+        .exit-button:hover {
+            background: #c0392b;
+        }
+
+        .alchemy-text {
+            font-size: 10px;
+            color: #95a5a6;
+            margin-right: 10px;
+        }
+
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            background: #ecf0f1;
+            border-radius: 5px;
+            font-size: 14px;
+            color: #2c3e50;
+            border-left: 4px solid #3498db;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .processing {
+            color: #f39c12;
+        }
+
+        .success {
+            color: #27ae60;
+            border-left-color: #27ae60;
+        }
+
+        .error {
+            color: #e74c3c;
+            border-left-color: #e74c3c;
+        }
+
+        .progress {
+            width: 100%;
+            height: 20px;
+            background: #ecf0f1;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #3498db, #2ecc71);
+            width: 0%;
+            transition: width 0.3s;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 0.6; }
+            50% { opacity: 1; }
+            100% { opacity: 0.6; }
+        }
+
+        .excel-note {
+            background: #e8f5e8;
+            border: 1px solid #27ae60;
+            border-radius: 5px;
+            padding: 10px;
+            margin-bottom: 20px;
+            font-size: 12px;
+            color: #2c3e50;
+        }
+
+        .excel-note strong {
+            color: #27ae60;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="title">📱 Phone List Splitter</div>
+            <div class="subtitle">Split inventory data by location with Apple/Non-Apple separation</div>
+        </div>
+
+        <div class="excel-note">
+            <strong>✅ Enhanced Version:</strong> This version uses ExcelJS to create Excel files with proper borders, formatting, and styling!
+            <br><strong>🇨🇦 NEW:</strong> Now includes Canada (CA) tab support for CA_B2B, CA_B2B_Boxed, and CA_B2B_Boxwd location codes!
+            <br><strong>🔧 FIXED:</strong> Floor USD file matching now works correctly with proper column name handling!
+        </div>
+
+        <div class="file-section">
+            <div class="section-title">📂 File Selection</div>
+            
+            <div class="file-group">
+                <label class="file-label">1. Main Inventory File:</label>
+                <div class="file-input-group">
+                    <input type="file" id="inventoryFile" class="file-input" accept=".csv,.xlsx,.xls">
+                    <button class="file-button" onclick="document.getElementById('inventoryFile').click()">
+                        📄 Select Inventory File
+                    </button>
+                    <span id="inventoryStatus" class="file-status">No file selected</span>
+                </div>
+            </div>
+
+            <div class="file-group">
+                <label class="file-label">2. Floor USD File (Optional):</label>
+                <div class="file-input-group">
+                    <input type="file" id="usdFile" class="file-input" accept=".csv,.xlsx,.xls">
+                    <button id="usdButton" class="file-button usd" onclick="document.getElementById('usdFile').click()">
+                        💰 Select Floor USD File
+                    </button>
+                    <button id="skipButton" class="skip-button" onclick="skipUsdFile()">
+                        ⏭️ Skip (Use Inventory Prices)
+                    </button>
+                    <span id="usdStatus" class="file-status">Waiting for selection...</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <div class="checkbox-group">
+                <label>
+                    <input type="checkbox" id="autoProcess" checked>
+                    🚀 Auto-process when files are selected
+                </label>
+            </div>
+
+            <div class="button-group">
+                <button id="processButton" class="process-button" onclick="startProcessing()" disabled>
+                    🚀 START PROCESSING
+                </button>
+                <div>
+                    <span class="alchemy-text">I LOVE ALCHEMY</span>
+                    <button class="exit-button" onclick="window.close()">❌ Exit</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="status" class="status">
+            🟢 Application ready! Please select your inventory file to begin.
+        </div>
+
+        <div id="progress" class="progress hidden">
+            <div id="progressBar" class="progress-bar"></div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let inventoryFile = null;
+        let usdFile = null;
+        let usdDecisionMade = false;
+
+        // Location mapping - UPDATED TO INCLUDE CA_B2B
+        const locationMapping = {
+            'AU_B2B': 'AU', 'AU_IE_B2B': 'AU', 'IE_IE_MVA_B2B': 'IE', 'IE_IE_VAT_B2B': 'IE',
+            'EU_MVAT': 'IE', 'HK_TOTEM_B2B': 'HK', 'SCHJP': 'JP',
+            'UK_MRC_MVA_B2B': 'UK', 'UK_MRC_VAT_B2B': 'UK', 'US_B2B': 'US', 'US_B2B_2': 'US',
+            'US_B2B_Boxed': 'US', 'HK_HTR_B2B': 'HK',
+            'HK_HTR_B2B_VZW': 'HK_VZW', 'HK_ARVATO_B2B': 'HK', 'US_MI_B2B': 'US',
+            'DUB_B2B': 'DUB', 'US_B2B_PACKAGED': 'US', 'JP_B2B_BOXED': 'JP', 'DUB_B2B_BOXED': 'DUB',
+            'DUB_B2B_2': 'DUB', 'US_B2B_2_BOXED': 'US', 'IE_IE_VAT_B2B_BOXED': 'IE',
+            'HK_HTR_B2B_BOXED': 'HK', 'UK_ENV_VAT_B2B': 'UK', 'IE_IE_MVA_B2B_BOXED': 'IE',
+            'US_B2B_2_Pricelock_Boxed': 'US', 'US_B2B_Pricelock_Boxed': 'US', 'US_MI_B2B_Boxed': 'US',
+            'HK_TOTEM_B2B_BOXED': 'HK', 'UK_MRC_MVA_B2B_Boxed': 'UK', 'DUB_HAWK_B2B_BOXED': 'DUB',
+            'CA_B2B': 'CA',
+            'CA_B2B_Boxed': 'CA',
+            'CA_B2B_Boxwd': 'CA'
+        ,
+            'HK_IE_FSET_B2B': 'HK',
+            'HK_IE_FSET_B2B_BOXED': 'HK',
+};
+
+        // Exchange rates
+        const exchangeRates = {
+            'USD': 1, 'AUD': 0.67, 'JPY': 0.007, 'EUR': 1.11, 'GBP': 1.31, 'AED': 0.27, 'CAD': 0.74
+        };
+        // ===== SIM classification helpers =====
+        // Rule:
+        // - Only iPhone 14 and newer have eSIM-only difference for US-spec.
+        // - Older models (e.g., XS / SE2) are treated as P Sim even if US-spec.
+        function getIphoneNumberFromModel(modelStr){
+            const s = (modelStr || '').toString();
+            const m = s.match(/\biPhone\s*(\d{2})\b/i);
+            if(!m) return null;
+            const n = parseInt(m[1], 10);
+            return Number.isFinite(n) ? n : null;
+        }
+        function isUSSpecFromSku(skuStr){
+            const s = (skuStr || '').toString().toUpperCase();
+            if(s.includes('-USA-') || /(^|-)USA($|-)/.test(s)) return true;
+            if(s.includes('-US-') || /(^|-)US($|-)/.test(s)) return true;
+            return false;
+        }
+
+        // Improved US-spec detection using the "Variant" / market list text.
+        // Your input "variant" values look like: "United States, Puerto Rico" or long lists that include "United States".
+        // If "United States" appears anywhere in that text, treat it as US-spec.
+        function isUSSpecFromVariant(variantStr){
+            const s = (variantStr || '').toString().toLowerCase();
+            return s.includes('united states');
+        }
+
+        // Try to fetch variant text from a row object:
+        // - prefer headers that contain "variant"
+        // - otherwise, if any cell text contains "United States", use that as variant text
+        function getVariantTextFromRow(row){
+            if(!row || typeof row !== 'object') return '';
+            const keys = Object.keys(row);
+
+            // 1) prefer keys that include "variant"
+            for(const k of keys){
+                if(k && k.toString().toLowerCase().includes('variant')){
+                    const v = row[k];
+                    if(v != null) return v;
+                }
+            }
+
+            // 2) fallback: any string cell containing "united states"
+            for(const k of keys){
+                const v = row[k];
+                if(typeof v === 'string' && v.toLowerCase().includes('united states')){
+                    return v;
+                }
+            }
+            return '';
+        }
+
+        function classifySim(modelStr, skuStr, variantStr){
+            const n = getIphoneNumberFromModel(modelStr);
+            const us = isUSSpecFromSku(skuStr) || isUSSpecFromVariant(variantStr);
+
+            // Rule:
+            // - Only iPhone 14 or later has eSIM vs pSIM difference.
+            // - Older iPhones are always treated as P Sim even if US-spec.
+            if(us && n != null && n >= 14) return 'E Sim';
+            return 'P Sim';
+        }
+
+
+
+        // File event listeners
+        document.getElementById('inventoryFile').addEventListener('change', function(e) {
+            if (e.target.files[0]) {
+                inventoryFile = e.target.files[0];
+                document.getElementById('inventoryStatus').textContent = `✅ ${inventoryFile.name}`;
+                document.getElementById('inventoryStatus').className = 'file-status selected';
+                updateStatus(`📄 Selected inventory file: ${inventoryFile.name}`);
+                
+                if (document.getElementById('autoProcess').checked) {
+                    updateStatus('ℹ️ Now select floor USD file or click "Skip" to continue.');
+                }
+                
+                updateProcessButton();
+            }
+        });
+
+        document.getElementById('usdFile').addEventListener('change', function(e) {
+            if (e.target.files[0]) {
+                usdFile = e.target.files[0];
+                usdDecisionMade = true;
+                document.getElementById('usdStatus').textContent = `✅ ${usdFile.name}`;
+                document.getElementById('usdStatus').className = 'file-status selected';
+                document.getElementById('skipButton').style.display = 'none';
+                updateStatus(`💰 Selected floor USD file: ${usdFile.name}`);
+                checkAutoProcess();
+            }
+        });
+
+        function skipUsdFile() {
+            usdFile = null;
+            usdDecisionMade = true;
+            document.getElementById('usdStatus').textContent = '⏭️ Skipped (will use inventory prices)';
+            document.getElementById('usdStatus').className = 'file-status skipped';
+            document.getElementById('usdButton').style.display = 'none';
+            document.getElementById('skipButton').style.display = 'none';
+            updateStatus('⏭️ Floor USD file skipped - will use inventory prices');
+            checkAutoProcess();
+        }
+
+        function updateProcessButton() {
+            const button = document.getElementById('processButton');
+            if (inventoryFile) {
+                button.disabled = false;
+                button.style.background = '#27ae60';
+            } else {
+                button.disabled = true;
+                button.style.background = '#bdc3c7';
+            }
+        }
+
+        function checkAutoProcess() {
+            if (document.getElementById('autoProcess').checked && inventoryFile && usdDecisionMade) {
+                updateStatus('🤖 Both file decisions made - auto-starting processing...');
+                setTimeout(startProcessing, 1000);
+            }
+        }
+
+        function updateStatus(message, type = '') {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = `status ${type}`;
+        }
+
+        function showProgress() {
+            document.getElementById('progress').classList.remove('hidden');
+            document.getElementById('progressBar').style.width = '100%';
+        }
+
+        function hideProgress() {
+            document.getElementById('progress').classList.add('hidden');
+            document.getElementById('progressBar').style.width = '0%';
+        }
+
+        async function startProcessing() {
+            if (!inventoryFile) {
+                alert('Please select an inventory file first!');
+                return;
+            }
+
+            // Disable button and show progress
+            const button = document.getElementById('processButton');
+            button.disabled = true;
+            button.textContent = '⏳ Processing...';
+            button.style.background = '#bdc3c7';
+            
+            updateStatus('🚀 Processing files...', 'processing');
+            showProgress();
+
+            try {
+                // Read inventory file
+                const inventoryData = await readFile(inventoryFile);
+                
+                // DEBUG: Check for CA data
+                const caRows = inventoryData.filter(row => 
+                    row.location_code === 'CA_B2B' || row.location_code === 'CA_B2B_Boxed' || row.location_code === 'CA_B2B_Boxwd'
+                );
+                
+                console.log(`DEBUG: Found ${caRows.length} rows with CA location code`);
+                if (caRows.length > 0) {
+                    console.log('DEBUG: Sample CA row:', caRows[0]);
+                    
+                    // Check categories in CA data
+                    const caCategories = [...new Set(caRows.map(row => row.Category))];
+                    console.log('DEBUG: CA Categories found:', caCategories);
+                    
+                    // Check grades in CA data
+                    const caGrades = [...new Set(caRows.map(row => row.Grade))];
+                    console.log('DEBUG: CA Grades found:', caGrades);
+                    
+                    // Check quantities in CA data
+                    const caQties = caRows.map(row => parseFloat(row.qty_available) || 0);
+                    console.log('DEBUG: CA Quantities range:', Math.min(...caQties), 'to', Math.max(...caQties));
+                    
+                    // Check if Category column exists
+                    const hasCategory = 'Category' in caRows[0];
+                    console.log('DEBUG: Has Category column:', hasCategory);
+                    
+                    // Check required columns
+                    const requiredColumns = ['SKU', 'Manufacturer', 'Model', 'Capacity', 'Grade', 'location_code', 'qty_available', 'floor_price', 'currency'];
+                    const missingColumns = requiredColumns.filter(col => !(col in caRows[0]));
+                    console.log('DEBUG: Missing required columns in CA data:', missingColumns);
+                }
+                
+                // Read USD file if provided
+                let usdData = null;
+                if (usdFile) {
+                    usdData = await readFile(usdFile);
+                }
+
+                // Process data
+                const processedData = processInventoryData(inventoryData);
+                
+                // DEBUG: Check processed CA data
+                const processedCaData = processedData.filter(row => row.Country === 'CA');
+                console.log(`DEBUG: After processing, found ${processedCaData.length} CA rows`);
+                if (processedCaData.length > 0) {
+                    console.log('DEBUG: Sample processed CA row:', processedCaData[0]);
+                }
+                
+                const processedUsdData = usdData ? processFloorUsdData(usdData) : [];
+                const finalData = calculateUsdPrice(processedData, processedUsdData);
+
+                // DEBUG: Check final CA data
+                const finalCaData = finalData.filter(row => row.Country === 'CA');
+                console.log(`DEBUG: In final data, found ${finalCaData.length} CA rows`);
+                
+                // Show debug info to user
+                const debugInfo = `
+                📊 DEBUG INFO:
+                - Raw CA rows: ${caRows.length}
+                - Processed CA rows: ${processedCaData.length}  
+                - Final CA rows: ${finalCaData.length}
+                `;
+                updateStatus(debugInfo, 'processing');
+
+                // Create Excel file with ExcelJS (with borders!)
+                const timestamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '').replace(/(\d{4})(\d{4})/, '$1_$2_');
+                const filename = `Phone_List_${timestamp}.xlsx`;
+                
+                const vzwInventory = processedData.filter(r => r.location_code === 'HK_HTR_B2B_VZW');
+                const vzwFinalData = calculateUsdPrice(vzwInventory, processedUsdData);
+
+                await createExcelOutputWithBorders(finalData, filename, vzwFinalData);
+                
+                updateStatus(`🎉 SUCCESS! Output saved: ${filename}`, 'success');
+                alert(`Processing completed successfully!\n\nOutput saved to: ${filename}\n\n✅ This file has proper borders and formatting!\n\n${debugInfo}`);
+
+            } catch (error) {
+                console.error('Processing error:', error);
+                updateStatus(`❌ Error: ${error.message}`, 'error');
+                alert(`An error occurred: ${error.message}`);
+            } finally {
+                // Re-enable button
+                button.disabled = false;
+                button.textContent = '🚀 START PROCESSING';
+                button.style.background = '#27ae60';
+                hideProgress();
+                updateStatus('✅ Ready for next processing.');
+            }
+        }
+
+        async function readFile(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    try {
+                        const data = new Uint8Array(e.target.result);
+                        const workbook = XLSX.read(data, { type: 'array' });
+                        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                        const jsonData = XLSX.utils.sheet_to_json(firstSheet);
+                        resolve(jsonData);
+                    } catch (error) {
+                        reject(new Error(`Failed to read file: ${error.message}`));
+                    }
+                };
+                reader.onerror = () => reject(new Error('Failed to read file'));
+                reader.readAsArrayBuffer(file);
+            });
+        }
+
+        function processInventoryData(data) {
+            // Check required columns
+            const requiredColumns = ['SKU', 'Manufacturer', 'Model', 'Capacity', 'Grade', 'location_code', 'qty_available', 'floor_price', 'currency'];
+            const hasCategory = data.length > 0 && 'Category' in data[0];
+            
+            if (hasCategory) requiredColumns.push('Category');
+            
+            const missingColumns = requiredColumns.filter(col => data.length === 0 || !(col in data[0]));
+            if (missingColumns.length > 0) {
+                throw new Error(`Missing required columns: ${missingColumns.join(', ')}`);
+            }
+
+            // DEBUG: Track CA data through filtering
+            let caDataCount = data.filter(row => row.location_code === 'CA_B2B' || row.location_code === 'CA_B2B_Boxed' || row.location_code === 'CA_B2B_Boxwd').length;
+            console.log(`DEBUG: Starting with ${caDataCount} CA rows`);
+
+            // Filter and process data
+            let filtered = data.filter(row => {
+                // Check if it's CA data for debugging
+                const isCA = (row.location_code === 'CA_B2B' || row.location_code === 'CA_B2B_Boxed' || row.location_code === 'CA_B2B_Boxwd');
+                
+                // Filter for smartphones if category exists
+                if (hasCategory && row.Category !== 'Smartphones') {
+                    if (isCA) console.log('DEBUG: CA row filtered out by category:', row.Category);
+                    return false;
+                }
+                
+                // Add country mapping
+                row.Country = locationMapping[row.location_code];
+                if (!row.Country) {
+                    if (isCA) console.log('DEBUG: CA row filtered out - no country mapping for:', row.location_code);
+                    return false;
+                }
+                
+                // Filter for valid grades
+                const validGrades = ['A', 'B', 'C', 'Z', 'W', 'AS', 'CP', 'WP', 'NB'];
+                if (row.location_code !== 'HK_HTR_B2B_VZW' && !validGrades.includes(row.Grade)) {
+                    if (isCA) console.log('DEBUG: CA row filtered out by grade:', row.Grade);
+                    return false;
+                }
+                
+                return true;
+            });
+
+            // DEBUG: Check CA after filtering
+            caDataCount = filtered.filter(row => row.Country === 'CA').length;
+            console.log(`DEBUG: After filtering, ${caDataCount} CA rows remain`);
+
+            // Clean and process data
+            filtered.forEach(row => {
+                row.Model = (row.Model || '').toString().trim();
+                row.Capacity = (row.Capacity || '').toString().trim();
+                row.Grade = (row.Grade || '').toString().trim();
+                row['Model grade'] = `${row.Model} ${row.Capacity}-${row.Grade}`;
+                // SIM classification (E Sim / P Sim) + split quantities
+                row.Sim = classifySim(row.Model, row.SKU, getVariantTextFromRow(row));
+                const q = parseFloat(row.qty_available) || 0;
+                row.PSimQty = (row.Sim === 'P Sim') ? q : 0;
+                row.ESimQty = (row.Sim === 'E Sim') ? q : 0;
+                row.qty_available = q;
+                row.floor_price = parseFloat(row.floor_price) || 0;
+                row.USD_floor_price = row.floor_price * (exchangeRates[row.currency] || 1);
+            });
+
+            return filtered;
+        }
+
+        function processFloorUsdData(data) {
+            if (!data || data.length === 0) return [];
+            
+            // Check what columns actually exist in the data
+            const sampleRow = data[0];
+            console.log('DEBUG: Floor USD file columns found:', Object.keys(sampleRow));
+            
+            // Try different possible column name variations for Model Grade
+            const modelGradeCol = sampleRow['Model Grade'] !== undefined ? 'Model Grade' : 
+                                 sampleRow['model grade'] !== undefined ? 'model grade' : 
+                                 sampleRow['ModelGrade'] !== undefined ? 'ModelGrade' : null;
+                                 
+            // Try different possible column name variations for Grade
+            const gradeCol = sampleRow['Grade'] !== undefined ? 'Grade' : 
+                            sampleRow['grade'] !== undefined ? 'grade' : null;
+                            
+            // Try different possible column name variations for Price
+            const priceCol = sampleRow['>500'] !== undefined ? '>500' : 
+                            sampleRow['500'] !== undefined ? '500' : 
+                            sampleRow['price'] !== undefined ? 'price' : null;
+            
+            console.log('DEBUG: Using columns:', {
+                modelGrade: modelGradeCol,
+                grade: gradeCol, 
+                price: priceCol
+            });
+            
+            // Validate required columns exist
+            if (!modelGradeCol || !gradeCol || !priceCol) {
+                console.warn('WARNING: Required columns not found in Floor USD file');
+                console.warn('Expected: Model Grade, Grade, >500');
+                console.warn('Found:', Object.keys(sampleRow));
+                return [];
+            }
+            
+            return data.map(row => {
+                let modelGrade = (row[modelGradeCol] || '').toString().trim();
+                const grade = (row[gradeCol] || '').toString().trim();
+                const usdPrice = parseFloat(row[priceCol]) || 0;
+                
+                // IMPORTANT FIX: Add grade to model grade to match inventory format
+                // Inventory creates: "iPhone 11 128GB-A"
+                // Floor file has: "iPhone 11 128GB" 
+                // So we need to add the grade: "iPhone 11 128GB" + "-A" = "iPhone 11 128GB-A"
+                if (modelGrade && grade && !modelGrade.includes('-' + grade)) {
+                    modelGrade = modelGrade + '-' + grade;
+                }
+                
+                const result = {
+                    'model grade': modelGrade,
+                    'grade': grade, 
+                    'usd_price': usdPrice
+                };
+                
+                console.log('DEBUG: Processed floor row:', result);
+                return result;
+            });
+        }
+
+        function calculateUsdPrice(inventoryData, usdData) {
+            // Group by Model grade, Grade, Country, Manufacturer
+            const grouped = {};
+            
+            inventoryData.forEach(row => {
+                const key = `${row['Model grade']}|${row.Grade}|${row.Country}|${row.Manufacturer}`;
+                if (!grouped[key]) {
+                    grouped[key] = {
+                        'Model grade': row['Model grade'],
+                        'Grade': row.Grade,
+                        'Country': row.Country,
+                        'Manufacturer': row.Manufacturer,
+                        'Qty': 0,
+                        'PSimQty': 0,
+                        'ESimQty': 0,
+                        'USD_floor_prices': []
+                    };
+                }
+                grouped[key].Qty += row.qty_available;
+                grouped[key].PSimQty += (row.PSimQty || 0);
+                grouped[key].ESimQty += (row.ESimQty || 0);
+                grouped[key].USD_floor_prices.push(row.USD_floor_price);
+            });
+
+            // Create USD lookup
+            const usdLookup = {};
+            usdData.forEach(row => {
+                const key = `${row['model grade']}|${row.grade}`;
+                usdLookup[key] = row.usd_price;
+                console.log(`DEBUG: USD Lookup added - Key: "${key}", Price: $${row.usd_price}`);
+            });
+
+            console.log('DEBUG: Complete USD Lookup table:', usdLookup);
+
+            // Calculate final data
+            const result = Object.values(grouped).map(group => {
+                const lookupKey = `${group['Model grade']}|${group.Grade}`;
+                
+                console.log(`DEBUG: Looking up key: "${lookupKey}"`);
+                
+                if (usdLookup[lookupKey]) {
+                    group.USD = usdLookup[lookupKey];
+                    console.log(`✅ DEBUG: Found USD price $${group.USD} for ${lookupKey}`);
+                } else {
+                    // Use average of floor prices
+                    const avg = group.USD_floor_prices.reduce((a, b) => a + b, 0) / group.USD_floor_prices.length;
+                    group.USD = avg || 0;
+                    console.log(`❌ DEBUG: No USD price found for ${lookupKey}, using average: $${group.USD}`);
+                }
+                
+                delete group.USD_floor_prices;
+                return group;
+            });
+
+            // Filter out rows with Qty <= 0
+            const finalResult = result.filter(row => {
+                const keepRow = row.Qty > 0;
+                if (!keepRow && row.Country === 'CA') {
+                    console.log('DEBUG: CA row filtered out due to zero quantity:', row);
+                }
+                return keepRow;
+            });
+
+            // DEBUG: Final CA count
+            const finalCaCount = finalResult.filter(row => row.Country === 'CA').length;
+            console.log(`DEBUG: Final result has ${finalCaCount} CA rows`);
+
+            return finalResult;
+        }
+
+        async function createExcelOutputWithBorders(data, filename, vzwData = []) {
+            const workbook = new ExcelJS.Workbook();
+            // UPDATED TO INCLUDE CA
+            const countries = ['AU', 'HK', 'JP', 'US', 'UK', 'IE', 'DUB', 'CA'];
+
+            // Define border style
+            const borderStyle = {
+                top: { style: 'thin', color: { argb: 'FF000000' } },
+                left: { style: 'thin', color: { argb: 'FF000000' } },
+                bottom: { style: 'thin', color: { argb: 'FF000000' } },
+                right: { style: 'thin', color: { argb: 'FF000000' } }
+            };
+
+            countries.forEach(country => {
+                const countryData = data.filter(row => row.Country === country);
+                if (countryData.length === 0) return;
+
+                const worksheet = workbook.addWorksheet(country);
+                const appleData = countryData.filter(row => row.Manufacturer === 'Apple');
+                const nonAppleData = countryData.filter(row => row.Manufacturer !== 'Apple');
+
+                // Set column widths
+                worksheet.columns = [
+                    { width: 35 }, // A - Model grade (Apple)
+                    { width: 10 }, // B - Grade (Apple)
+                    { width: 10 }, // C - Qty (Apple)
+                    { width: 12 }, // D - P Sim Qty (Apple)
+                    { width: 12 }, // E - E Sim Qty (Apple)
+                    { width: 15 }, // F - USD (Apple)
+                    { width: 3 },  // G - Separator
+                    { width: 35 }, // H - Model grade (Non-Apple)
+                    { width: 10 }, // I - Grade (Non-Apple)
+                    { width: 10 }, // J - Qty (Non-Apple)
+                    { width: 12 }, // K - P Sim Qty (Non-Apple)
+                    { width: 12 }, // L - E Sim Qty (Non-Apple)
+                    { width: 15 }  // M - USD (Non-Apple)
+                ];
+
+                // Add Apple table
+                if (appleData.length > 0) {
+                    // Headers
+                    worksheet.getCell('A1').value = 'Model grade';
+                    worksheet.getCell('B1').value = 'Grade';
+                    worksheet.getCell('C1').value = 'Qty';
+                    worksheet.getCell('D1').value = 'P Sim Qty';
+                    worksheet.getCell('E1').value = 'E Sim Qty';
+                    worksheet.getCell('F1').value = 'USD';
+
+                    // Format headers
+                    ['A1', 'B1', 'C1', 'D1', 'E1', 'F1'].forEach(cell => {
+                        worksheet.getCell(cell).font = { bold: true };
+                        worksheet.getCell(cell).fill = {
+                            type: 'pattern',
+                            pattern: 'solid',
+                            fgColor: { argb: 'FFE6E6E6' }
+                        };
+                        worksheet.getCell(cell).border = borderStyle;
+                    });
+
+                    // Add data
+                    appleData.forEach((row, index) => {
+                        const rowNum = index + 2;
+                        worksheet.getCell(`A${rowNum}`).value = row['Model grade'];
+                        worksheet.getCell(`B${rowNum}`).value = row.Grade;
+                        worksheet.getCell(`C${rowNum}`).value = parseInt(row.Qty);
+                        worksheet.getCell(`D${rowNum}`).value = parseInt(row.PSimQty || 0);
+                        worksheet.getCell(`E${rowNum}`).value = parseInt(row.ESimQty || 0);
+                        worksheet.getCell(`F${rowNum}`).value = parseFloat(row.USD.toFixed(2));
+
+                        // Apply borders and formatting
+                        [`A${rowNum}`, `B${rowNum}`, `C${rowNum}`, `D${rowNum}`, `E${rowNum}`, `F${rowNum}`].forEach(cell => {
+                            worksheet.getCell(cell).border = borderStyle;
+                        });
+
+                        // Format USD as currency
+                        worksheet.getCell(`F${rowNum}`).numFmt = '"$"#,##0.00';
+                    });
+                }
+
+                // Add Non-Apple table
+                if (nonAppleData.length > 0) {
+                    // Headers
+                    worksheet.getCell('H1').value = 'Model grade';
+                    worksheet.getCell('I1').value = 'Grade';
+                    worksheet.getCell('J1').value = 'Qty';
+                    worksheet.getCell('K1').value = 'P Sim Qty';
+                    worksheet.getCell('L1').value = 'E Sim Qty';
+                    worksheet.getCell('M1').value = 'USD';
+
+                    // Format headers
+                    ['H1', 'I1', 'J1', 'K1', 'L1', 'M1'].forEach(cell => {
+                        worksheet.getCell(cell).font = { bold: true };
+                        worksheet.getCell(cell).fill = {
+                            type: 'pattern',
+                            pattern: 'solid',
+                            fgColor: { argb: 'FFE6E6E6' }
+                        };
+                        worksheet.getCell(cell).border = borderStyle;
+                    });
+
+                    // Add data
+                    nonAppleData.forEach((row, index) => {
+                        const rowNum = index + 2;
+                        worksheet.getCell(`H${rowNum}`).value = row['Model grade'];
+                        worksheet.getCell(`I${rowNum}`).value = row.Grade;
+                        worksheet.getCell(`J${rowNum}`).value = parseInt(row.Qty);
+                        worksheet.getCell(`K${rowNum}`).value = parseInt(row.PSimQty || 0);
+                        worksheet.getCell(`L${rowNum}`).value = parseInt(row.ESimQty || 0);
+                        worksheet.getCell(`M${rowNum}`).value = parseFloat(row.USD.toFixed(2));
+
+                        // Apply borders and formatting
+                        [`H${rowNum}`, `I${rowNum}`, `J${rowNum}`, `K${rowNum}`, `L${rowNum}`, `M${rowNum}`].forEach(cell => {
+                            worksheet.getCell(cell).border = borderStyle;
+                        });
+
+                        // Format USD as currency
+                        worksheet.getCell(`M${rowNum}`).numFmt = '"$"#,##0.00';
+                    });
+                }
+            });
+
+            // --- Extra: HK_HTR_B2B_VZW only tab (ignores grade filter upstream) ---
+            // Updated: also break down Qty into P Sim / E Sim (same columns as other tabs)
+            if (vzwData && vzwData.length > 0) {
+                const vzwSheetName = 'HK_VZW'; // short + clear
+                const wsVzw = workbook.addWorksheet(vzwSheetName);
+
+                const appleV = vzwData.filter(r => r.Manufacturer === 'Apple');
+                const nonAppleV = vzwData.filter(r => r.Manufacturer !== 'Apple');
+
+                // Match the standard layout:
+                // A-F Apple, G spacer, H-M Non-Apple
+                wsVzw.columns = [
+                    { width: 35 }, // A - Model grade (Apple)
+                    { width: 10 }, // B - Grade (Apple)
+                    { width: 12 }, // C - Qty (Apple)
+                    { width: 12 }, // D - P Sim Qty (Apple)
+                    { width: 12 }, // E - E Sim Qty (Apple)
+                    { width: 15 }, // F - USD (Apple)
+                    { width: 3  }, // G - spacer
+                    { width: 35 }, // H - Model grade (Non-Apple)
+                    { width: 10 }, // I - Grade (Non-Apple)
+                    { width: 12 }, // J - Qty (Non-Apple)
+                    { width: 12 }, // K - P Sim Qty (Non-Apple)
+                    { width: 12 }, // L - E Sim Qty (Non-Apple)
+                    { width: 15 }  // M - USD (Non-Apple)
+                ];
+
+                // Headers (Apple)
+                ['A1','B1','C1','D1','E1','F1'].forEach(c => {
+                    wsVzw.getCell(c).font = { bold: true };
+                    wsVzw.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE6E6E6' } };
+                    wsVzw.getCell(c).border = borderStyle;
+                });
+                wsVzw.getCell('A1').value = 'Model grade';
+                wsVzw.getCell('B1').value = 'Grade';
+                wsVzw.getCell('C1').value = 'Qty';
+                wsVzw.getCell('D1').value = 'P Sim Qty';
+                wsVzw.getCell('E1').value = 'E Sim Qty';
+                wsVzw.getCell('F1').value = 'USD';
+
+                // Headers (Non-Apple)
+                ['H1','I1','J1','K1','L1','M1'].forEach(c => {
+                    wsVzw.getCell(c).font = { bold: true };
+                    wsVzw.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE6E6E6' } };
+                    wsVzw.getCell(c).border = borderStyle;
+                });
+                wsVzw.getCell('H1').value = 'Model grade';
+                wsVzw.getCell('I1').value = 'Grade';
+                wsVzw.getCell('J1').value = 'Qty';
+                wsVzw.getCell('K1').value = 'P Sim Qty';
+                wsVzw.getCell('L1').value = 'E Sim Qty';
+                wsVzw.getCell('M1').value = 'USD';
+
+                const maxRows = Math.max(appleV.length, nonAppleV.length);
+                for (let i = 0; i < maxRows; i++) {
+                    const rnum = i + 2;
+
+                    // Apple row
+                    if (i < appleV.length) {
+                        const row = appleV[i];
+                        wsVzw.getCell(`A${rnum}`).value = row['Model grade'];
+                        wsVzw.getCell(`B${rnum}`).value = row['Grade'];
+                        wsVzw.getCell(`C${rnum}`).value = row['Qty'] === '' ? '' : parseInt(row['Qty'], 10) || 0;
+                        wsVzw.getCell(`D${rnum}`).value = row['PSimQty'] === '' ? '' : parseInt(row['PSimQty'], 10) || 0;
+                        wsVzw.getCell(`E${rnum}`).value = row['ESimQty'] === '' ? '' : parseInt(row['ESimQty'], 10) || 0;
+                        wsVzw.getCell(`F${rnum}`).value = row['USD'] === '' ? '' : Number(row['USD']) || 0;
+
+                        [`A${rnum}`,`B${rnum}`,`C${rnum}`,`D${rnum}`,`E${rnum}`,`F${rnum}`].forEach(c => wsVzw.getCell(c).border = borderStyle);
+                        wsVzw.getCell(`F${rnum}`).numFmt = '"$"#,##0.00';
+                    } else {
+                        // keep borders consistent even if blank
+                        [`A${rnum}`,`B${rnum}`,`C${rnum}`,`D${rnum}`,`E${rnum}`,`F${rnum}`].forEach(c => wsVzw.getCell(c).border = borderStyle);
+                    }
+
+                    // Non-Apple row
+                    if (i < nonAppleV.length) {
+                        const row = nonAppleV[i];
+                        wsVzw.getCell(`H${rnum}`).value = row['Model grade'];
+                        wsVzw.getCell(`I${rnum}`).value = row['Grade'];
+                        wsVzw.getCell(`J${rnum}`).value = row['Qty'] === '' ? '' : parseInt(row['Qty'], 10) || 0;
+                        wsVzw.getCell(`K${rnum}`).value = row['PSimQty'] === '' ? '' : parseInt(row['PSimQty'], 10) || 0;
+                        wsVzw.getCell(`L${rnum}`).value = row['ESimQty'] === '' ? '' : parseInt(row['ESimQty'], 10) || 0;
+                        wsVzw.getCell(`M${rnum}`).value = row['USD'] === '' ? '' : Number(row['USD']) || 0;
+
+                        [`H${rnum}`,`I${rnum}`,`J${rnum}`,`K${rnum}`,`L${rnum}`,`M${rnum}`].forEach(c => wsVzw.getCell(c).border = borderStyle);
+                        wsVzw.getCell(`M${rnum}`).numFmt = '"$"#,##0.00';
+                    } else {
+                        [`H${rnum}`,`I${rnum}`,`J${rnum}`,`K${rnum}`,`L${rnum}`,`M${rnum}`].forEach(c => wsVzw.getCell(c).border = borderStyle);
+                    }
+                }
+            }
+
+
+            // Generate and save file
+            const buffer = await workbook.xlsx.writeBuffer();
+            const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+            saveAs(blob, filename);
+        }
+    </script>
+</body>
+</html>
