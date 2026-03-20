@@ -1,0 +1,940 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SKU Offer Builder</title>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --panel: #121933;
+      --panel-2: #182244;
+      --text: #e9eefc;
+      --muted: #9fb0d9;
+      --accent: #6ea8fe;
+      --good: #38c172;
+      --warn: #ffb020;
+      --bad: #ff6b6b;
+      --border: #28345f;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      background: linear-gradient(180deg, #0a0f1d 0%, #0f1730 100%);
+      color: var(--text);
+    }
+    .wrap {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 30px;
+    }
+    .sub {
+      color: var(--muted);
+      margin-bottom: 18px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: 16px;
+    }
+    .panel {
+      grid-column: span 12;
+      background: rgba(18, 25, 51, 0.95);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 18px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+    }
+    .panel h2 {
+      margin: 0 0 12px;
+      font-size: 19px;
+    }
+    .dropzone {
+      border: 2px dashed #4760a8;
+      border-radius: 16px;
+      padding: 28px;
+      text-align: center;
+      background: rgba(110, 168, 254, 0.05);
+      transition: 0.2s ease;
+      cursor: pointer;
+    }
+    .dropzone.drag {
+      background: rgba(110, 168, 254, 0.12);
+      border-color: var(--accent);
+    }
+    .dropzone input { display: none; }
+    .tiny {
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .roles {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 14px;
+    }
+    .rolebox {
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px;
+    }
+    .rolebox .label {
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .rolebox .value {
+      font-weight: 700;
+      min-height: 22px;
+      word-break: break-word;
+    }
+    .controls {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr auto auto;
+      gap: 12px;
+      align-items: end;
+      margin-top: 16px;
+    }
+    label {
+      display: block;
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+    input[type="text"], select {
+      width: 100%;
+      background: #0f1730;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+      outline: none;
+    }
+    button {
+      border: 0;
+      border-radius: 10px;
+      padding: 11px 16px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .btn-primary { background: var(--accent); color: #09111f; }
+    .btn-secondary { background: #25345f; color: var(--text); }
+    .btn-ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+    button:disabled { opacity: 0.55; cursor: not-allowed; }
+    .file-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 12px;
+      margin-top: 14px;
+    }
+    .file-card {
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px;
+    }
+    .file-name {
+      font-weight: 700;
+      margin-bottom: 8px;
+      word-break: break-word;
+    }
+    .badge-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .badge {
+      padding: 4px 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      background: #24335d;
+      color: #d7e4ff;
+      border: 1px solid #38508e;
+    }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 12px;
+    }
+    .stat {
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+    }
+    .stat .k {
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+    }
+    .stat .v {
+      font-size: 24px;
+      font-weight: 800;
+    }
+    .good { color: var(--good); }
+    .warn { color: var(--warn); }
+    .bad { color: var(--bad); }
+    .table-wrap {
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      margin-top: 12px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 760px;
+    }
+    th, td {
+      padding: 10px 12px;
+      border-bottom: 1px solid #243154;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      position: sticky;
+      top: 0;
+      background: #12204a;
+      z-index: 1;
+    }
+    .log {
+      white-space: pre-wrap;
+      font-family: Consolas, monospace;
+      background: #0c142a;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px;
+      min-height: 110px;
+      max-height: 240px;
+      overflow: auto;
+      color: #d6e0fb;
+    }
+    .note {
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    .hidden { display: none; }
+    .downloads {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 12px;
+    }
+    @media (max-width: 960px) {
+      .controls { grid-template-columns: 1fr; }
+      .roles { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>SKU Offer Builder</h1>
+    <div class="sub">Import Cost, Offer and Stocklist files, build the CSV output, and validate total value differences.</div>
+
+    <div class="grid">
+      <section class="panel">
+        <h2>1) Import Files</h2>
+        <div id="dropzone" class="dropzone">
+          <input id="fileInput" type="file" multiple accept=".xlsx,.xls,.csv" />
+          <div><strong>Drop files here</strong> or click to select</div>
+          <div class="tiny">You can import all files together. The tool will auto-detect the role and you can override it manually.</div>
+        </div>
+
+        <div class="roles">
+          <div class="rolebox"><div class="label">Cost</div><div id="assignedCost" class="value">—</div></div>
+          <div class="rolebox"><div class="label">Offer</div><div id="assignedOffer" class="value">—</div></div>
+          <div class="rolebox"><div class="label">Stocklist</div><div id="assignedStock" class="value">—</div></div>
+          <div class="rolebox"><div class="label">Status</div><div id="readyStatus" class="value warn">Waiting for files</div></div>
+        </div>
+
+        <div id="fileList" class="file-list"></div>
+
+        <div class="controls">
+          <div>
+            <label for="locationInput">Output Location</label>
+            <input id="locationInput" type="text" value="HK_HTR_B2B_VZW" />
+          </div>
+          <div>
+            <label for="mixedMode">Mixed-offer SKU handling</label>
+            <select id="mixedMode">
+              <option value="weighted">Weighted average offer (keeps grouped total aligned)</option>
+              <option value="first">First matched offer</option>
+              <option value="mode">Most frequent offer</option>
+            </select>
+          </div>
+          <button id="processBtn" class="btn-primary" disabled>Process</button>
+          <button id="resetBtn" class="btn-secondary">Reset</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>2) Processing Log</h2>
+        <div id="log" class="log">No actions yet.</div>
+      </section>
+
+      <section id="resultsPanel" class="panel hidden">
+        <h2>3) Results</h2>
+        <div id="stats" class="stats"></div>
+        <div class="downloads">
+          <button id="downloadOutput" class="btn-primary">Download Output CSV</button>
+          <button id="downloadDetail" class="btn-secondary">Download Detail CSV</button>
+          <button id="downloadConflicts" class="btn-secondary">Download Conflict CSV</button>
+          <button id="downloadUnmatched" class="btn-secondary">Download Unmatched CSV</button>
+        </div>
+        <div id="resultNote" class="note" style="margin-top:12px;"></div>
+      </section>
+
+      <section id="previewPanel" class="panel hidden">
+        <h2>4) Output Preview</h2>
+        <div id="outputPreview" class="table-wrap"></div>
+      </section>
+
+      <section id="conflictPanel" class="panel hidden">
+        <h2>5) Review Items</h2>
+        <div id="conflictPreview"></div>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    const state = {
+      files: [],
+      assigned: { cost: null, offer: null, stock: null },
+      result: null
+    };
+
+    const ROLE_OPTIONS = [
+      { value: '', label: 'Unassigned' },
+      { value: 'cost', label: 'Cost' },
+      { value: 'offer', label: 'Offer' },
+      { value: 'stock', label: 'Stocklist' }
+    ];
+
+    const els = {
+      dropzone: document.getElementById('dropzone'),
+      fileInput: document.getElementById('fileInput'),
+      fileList: document.getElementById('fileList'),
+      assignedCost: document.getElementById('assignedCost'),
+      assignedOffer: document.getElementById('assignedOffer'),
+      assignedStock: document.getElementById('assignedStock'),
+      readyStatus: document.getElementById('readyStatus'),
+      processBtn: document.getElementById('processBtn'),
+      resetBtn: document.getElementById('resetBtn'),
+      locationInput: document.getElementById('locationInput'),
+      mixedMode: document.getElementById('mixedMode'),
+      log: document.getElementById('log'),
+      resultsPanel: document.getElementById('resultsPanel'),
+      previewPanel: document.getElementById('previewPanel'),
+      conflictPanel: document.getElementById('conflictPanel'),
+      stats: document.getElementById('stats'),
+      outputPreview: document.getElementById('outputPreview'),
+      conflictPreview: document.getElementById('conflictPreview'),
+      resultNote: document.getElementById('resultNote'),
+      downloadOutput: document.getElementById('downloadOutput'),
+      downloadDetail: document.getElementById('downloadDetail'),
+      downloadConflicts: document.getElementById('downloadConflicts'),
+      downloadUnmatched: document.getElementById('downloadUnmatched')
+    };
+
+    function log(msg) {
+      const time = new Date().toLocaleTimeString();
+      const existing = els.log.textContent === 'No actions yet.' ? '' : els.log.textContent + '\n';
+      els.log.textContent = existing + `[${time}] ${msg}`;
+      els.log.scrollTop = els.log.scrollHeight;
+    }
+
+    function normalize(value) {
+      return String(value ?? '').replace(/\s+/g, ' ').trim();
+    }
+
+    function normalizeHeader(value) {
+      return normalize(value).toLowerCase();
+    }
+
+    function currency(v) {
+      const n = Number(v || 0);
+      return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 });
+    }
+
+    function csvEscape(value) {
+      const s = String(value ?? '');
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    }
+
+    function toCsv(rows, columns) {
+      const header = columns.map(csvEscape).join(',');
+      const body = rows.map(row => columns.map(col => csvEscape(row[col])).join(',')).join('\n');
+      return header + '\n' + body;
+    }
+
+    function downloadText(filename, text, mime = 'text/csv;charset=utf-8;') {
+      const blob = new Blob([text], { type: mime });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    async function readWorkbook(file) {
+      const buffer = await file.arrayBuffer();
+      return XLSX.read(buffer, { type: 'array' });
+    }
+
+    function sheetToAOA(workbook, sheetName) {
+      const ws = workbook.Sheets[sheetName];
+      return XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+    }
+
+    function detectHeaderRow(aoa, requiredHeaders) {
+      const targets = requiredHeaders.map(h => normalizeHeader(h));
+      for (let r = 0; r < aoa.length; r++) {
+        const row = aoa[r].map(normalizeHeader);
+        const ok = targets.every(t => row.includes(t));
+        if (ok) return r;
+      }
+      return -1;
+    }
+
+    function mapHeaders(row) {
+      const map = {};
+      row.forEach((v, i) => {
+        const key = normalizeHeader(v);
+        if (!key) return;
+        if (!(key in map)) map[key] = i;
+      });
+      return map;
+    }
+
+    async function inspectFile(file) {
+      const workbook = await readWorkbook(file);
+      const sheetNames = workbook.SheetNames;
+      const firstSheet = sheetNames[0];
+      const aoa = sheetToAOA(workbook, firstSheet);
+      let detectedRole = '';
+      let reason = 'No strong match';
+
+      if (sheetNames.some(n => normalizeHeader(n) === 'data')) {
+        const dataSheet = sheetNames.find(n => normalizeHeader(n) === 'data');
+        const dataAOA = sheetToAOA(workbook, dataSheet);
+        const row = detectHeaderRow(dataAOA, ['IMEI', 'ModelType', 'Capacity']);
+        if (row >= 0) {
+          detectedRole = 'cost';
+          reason = 'Found Data sheet with IMEI / ModelType / Capacity';
+        }
+      }
+
+      if (!detectedRole) {
+        for (const name of sheetNames) {
+          const rows = sheetToAOA(workbook, name);
+          const row = detectHeaderRow(rows, ['IMEI', 'Serial Number', 'SKU']);
+          if (row >= 0) {
+            detectedRole = 'stock';
+            reason = 'Found IMEI / Serial Number / SKU headers';
+            break;
+          }
+        }
+      }
+
+      if (!detectedRole) {
+        for (const name of sheetNames) {
+          const rows = sheetToAOA(workbook, name);
+          const row = detectHeaderRow(rows, ['Model', 'Capacity', 'ATS Grade', 'Selling Price', 'Qty']);
+          if (row >= 0) {
+            detectedRole = 'offer';
+            reason = 'Found offer table with Model / Capacity / ATS Grade / Selling Price / Qty';
+            break;
+          }
+        }
+      }
+
+      const lowerName = file.name.toLowerCase();
+      if (!detectedRole && lowerName.includes('cost')) { detectedRole = 'cost'; reason = 'Filename hint'; }
+      if (!detectedRole && lowerName.includes('offer')) { detectedRole = 'offer'; reason = 'Filename hint'; }
+      if (!detectedRole && (lowerName.includes('stock') || lowerName.includes('stocklist'))) { detectedRole = 'stock'; reason = 'Filename hint'; }
+
+      return { workbook, detectedRole, reason, sheetNames };
+    }
+
+    function refreshAssigned() {
+      const byRole = { cost: null, offer: null, stock: null };
+      state.files.forEach(f => {
+        if (f.role && !byRole[f.role]) byRole[f.role] = f;
+      });
+      state.assigned = byRole;
+      els.assignedCost.textContent = byRole.cost ? byRole.cost.file.name : '—';
+      els.assignedOffer.textContent = byRole.offer ? byRole.offer.file.name : '—';
+      els.assignedStock.textContent = byRole.stock ? byRole.stock.file.name : '—';
+
+      const ready = !!(byRole.cost && byRole.offer && byRole.stock);
+      els.readyStatus.textContent = ready ? 'Ready to process' : 'Waiting for full assignment';
+      els.readyStatus.className = 'value ' + (ready ? 'good' : 'warn');
+      els.processBtn.disabled = !ready;
+    }
+
+    function renderFileCards() {
+      if (!state.files.length) {
+        els.fileList.innerHTML = '';
+        refreshAssigned();
+        return;
+      }
+
+      els.fileList.innerHTML = state.files.map((entry, idx) => {
+        const options = ROLE_OPTIONS.map(opt => `<option value="${opt.value}" ${entry.role === opt.value ? 'selected' : ''}>${opt.label}</option>`).join('');
+        return `
+          <div class="file-card">
+            <div class="file-name">${entry.file.name}</div>
+            <div class="badge-row">
+              <span class="badge">${entry.sheetNames.length} sheet(s)</span>
+              <span class="badge">Detected: ${entry.detectedRole || 'Unknown'}</span>
+            </div>
+            <div class="tiny" style="margin-bottom:10px;">${entry.reason}</div>
+            <label>Assign role</label>
+            <select data-index="${idx}" class="role-select">${options}</select>
+          </div>
+        `;
+      }).join('');
+
+      Array.from(document.querySelectorAll('.role-select')).forEach(sel => {
+        sel.addEventListener('change', (e) => {
+          const idx = Number(e.target.dataset.index);
+          const newRole = e.target.value;
+          state.files.forEach((f, i) => {
+            if (i !== idx && f.role === newRole && newRole) f.role = '';
+          });
+          state.files[idx].role = newRole;
+          renderFileCards();
+        });
+      });
+
+      refreshAssigned();
+    }
+
+    async function addFiles(files) {
+      const incoming = Array.from(files || []);
+      if (!incoming.length) return;
+      log(`Importing ${incoming.length} file(s)...`);
+
+      for (const file of incoming) {
+        try {
+          const inspected = await inspectFile(file);
+          state.files = state.files.filter(x => x.file.name !== file.name);
+          state.files.push({
+            file,
+            workbook: inspected.workbook,
+            detectedRole: inspected.detectedRole,
+            reason: inspected.reason,
+            sheetNames: inspected.sheetNames,
+            role: inspected.detectedRole
+          });
+          log(`Loaded ${file.name} → ${inspected.detectedRole || 'unassigned'} (${inspected.reason})`);
+        } catch (err) {
+          console.error(err);
+          log(`Failed to read ${file.name}: ${err.message || err}`);
+        }
+      }
+      renderFileCards();
+    }
+
+    function parseCost(workbook) {
+      const sheetName = workbook.SheetNames.find(n => normalizeHeader(n) === 'data') || workbook.SheetNames[0];
+      const aoa = sheetToAOA(workbook, sheetName);
+      const headerRow = detectHeaderRow(aoa, ['IMEI', 'ModelType', 'Capacity']);
+      if (headerRow < 0) throw new Error('Cost file: could not find IMEI / ModelType / Capacity headers in Data sheet.');
+      const headers = mapHeaders(aoa[headerRow]);
+      const rows = [];
+      for (let r = headerRow + 1; r < aoa.length; r++) {
+        const row = aoa[r];
+        const imei = normalize(row[headers['imei']]);
+        const itemNumber = normalize(row[headers['itemnumber']]);
+        const modelType = normalize(row[headers['modeltype']]);
+        const capacity = normalize(row[headers['capacity']]);
+        if (!(imei || itemNumber || modelType || capacity)) continue;
+        rows.push({
+          imei,
+          itemNumber,
+          modelType,
+          capacity,
+          rawGrade: normalize(row[headers['grade']])
+        });
+      }
+      return { sheetName, rows };
+    }
+
+    function parseStock(workbook) {
+      let found = null;
+      for (const sheetName of workbook.SheetNames) {
+        const aoa = sheetToAOA(workbook, sheetName);
+        const headerRow = detectHeaderRow(aoa, ['IMEI', 'Serial Number', 'SKU']);
+        if (headerRow < 0) continue;
+        const headers = mapHeaders(aoa[headerRow]);
+        const rows = [];
+        for (let r = headerRow + 1; r < aoa.length; r++) {
+          const row = aoa[r];
+          const imei = normalize(row[headers['imei']]);
+          const serial = normalize(row[headers['serial number']]);
+          const sku = normalize(row[headers['sku']]);
+          if (!(imei || serial || sku)) continue;
+          rows.push({ imei, serial, sku });
+        }
+        found = { sheetName, rows };
+        break;
+      }
+      if (!found) throw new Error('Stocklist: could not find IMEI / Serial Number / SKU headers.');
+      return found;
+    }
+
+    function parseOffer(workbook) {
+      for (const sheetName of workbook.SheetNames) {
+        const aoa = sheetToAOA(workbook, sheetName);
+        const headerRow = detectHeaderRow(aoa, ['Model', 'Capacity', 'ATS Grade', 'Selling Price', 'Qty']);
+        if (headerRow < 0) continue;
+        const headers = mapHeaders(aoa[headerRow]);
+        const rows = [];
+        for (let r = headerRow + 1; r < aoa.length; r++) {
+          const row = aoa[r];
+          const model = normalize(row[headers['model']]);
+          const capacity = normalize(row[headers['capacity']]);
+          const atsGrade = normalize(row[headers['ats grade']]);
+          const qtyRaw = row[headers['qty']];
+          const sellingPriceRaw = row[headers['selling price']];
+          const qty = Number(qtyRaw || 0);
+          const sellingPrice = Number(sellingPriceRaw || 0);
+          if (!(model || capacity || atsGrade || qty || sellingPrice)) continue;
+          if (!(model && capacity && atsGrade) || Number.isNaN(sellingPrice)) continue;
+          rows.push({
+            model,
+            capacity,
+            atsGrade,
+            qty: Number.isNaN(qty) ? 0 : qty,
+            sellingPrice,
+            name: normalize(`${model} ${capacity} ${atsGrade}`)
+          });
+        }
+        if (rows.length) return { sheetName, rows, headerRow: headerRow + 1 };
+      }
+      throw new Error('Offer file: could not find a table with Model / Capacity / ATS Grade / Selling Price / Qty.');
+    }
+
+    function gradeFromSku(sku) {
+      const parts = normalize(sku).split('-').filter(Boolean);
+      return parts.length ? parts[parts.length - 1] : '';
+    }
+
+    function buildLookupMap(rows, keyName, valueName) {
+      const map = new Map();
+      rows.forEach(row => {
+        const key = normalize(row[keyName]);
+        const value = normalize(row[valueName]);
+        if (key && value && !map.has(key)) map.set(key, value);
+      });
+      return map;
+    }
+
+    function renderStats(result) {
+      const stats = [
+        ['Cost rows', result.costRows.length, ''],
+        ['Grouped SKU rows', result.outputRows.length, ''],
+        ['Unmatched cost rows', result.unmatchedRows.length, result.unmatchedRows.length ? 'warn' : 'good'],
+        ['Mixed-offer SKU', result.conflictRows.length, result.conflictRows.length ? 'warn' : 'good'],
+        ['Offer total (offer file)', currency(result.offerTotal), ''],
+        ['Detail total (matched rows)', currency(result.detailTotal), ''],
+        ['Output total (grouped CSV)', currency(result.outputTotal), ''],
+        ['Grouped diff vs offer', currency(result.outputDiff), Math.abs(result.outputDiff) < 1e-9 ? 'good' : 'warn']
+      ];
+      els.stats.innerHTML = stats.map(([k, v, cls]) => `
+        <div class="stat">
+          <div class="k">${k}</div>
+          <div class="v ${cls}">${v}</div>
+        </div>
+      `).join('');
+    }
+
+    function renderTable(container, rows, columns, limit = 20) {
+      if (!rows.length) {
+        container.innerHTML = '<div class="note">No rows to show.</div>';
+        return;
+      }
+      const preview = rows.slice(0, limit);
+      const head = columns.map(c => `<th>${c}</th>`).join('');
+      const body = preview.map(row => `<tr>${columns.map(c => `<td>${row[c] ?? ''}</td>`).join('')}</tr>`).join('');
+      const note = rows.length > limit ? `<div class="note" style="margin-top:10px;">Showing first ${limit} of ${rows.length} rows.</div>` : '';
+      container.innerHTML = `<div class="table-wrap"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>${note}`;
+    }
+
+    function processFiles() {
+      const { cost, offer, stock } = state.assigned;
+      if (!(cost && offer && stock)) return;
+      log('Parsing Cost file...');
+      const costData = parseCost(cost.workbook);
+      log(`Cost rows loaded: ${costData.rows.length} from sheet ${costData.sheetName}`);
+
+      log('Parsing Stocklist...');
+      const stockData = parseStock(stock.workbook);
+      log(`Stock rows loaded: ${stockData.rows.length} from sheet ${stockData.sheetName}`);
+
+      log('Parsing Offer file...');
+      const offerData = parseOffer(offer.workbook);
+      log(`Offer rows loaded: ${offerData.rows.length} from sheet ${offerData.sheetName} (header row ${offerData.headerRow})`);
+
+      const imeiToSku = buildLookupMap(stockData.rows, 'imei', 'sku');
+      const serialToSku = buildLookupMap(stockData.rows, 'serial', 'sku');
+      const offerToPrice = new Map();
+      offerData.rows.forEach(r => { if (!offerToPrice.has(r.name)) offerToPrice.set(r.name, r.sellingPrice); });
+
+      let offerTotal = 0;
+      offerData.rows.forEach(r => { offerTotal += Number(r.qty || 0) * Number(r.sellingPrice || 0); });
+
+      const detailRows = [];
+      const unmatchedRows = [];
+      const missingOfferRows = [];
+      const qtyByMethod = { imei: 0, serial: 0, itemNumberSerial: 0, unmatched: 0 };
+
+      log('Matching Cost rows to Stocklist and Offer...');
+      costData.rows.forEach((row, idx) => {
+        let sku = '';
+        let matchMethod = '';
+        if (row.imei && imeiToSku.has(row.imei)) {
+          sku = imeiToSku.get(row.imei);
+          matchMethod = 'IMEI → IMEI';
+          qtyByMethod.imei++;
+        } else if (row.imei && serialToSku.has(row.imei)) {
+          sku = serialToSku.get(row.imei);
+          matchMethod = 'IMEI field → Serial Number';
+          qtyByMethod.serial++;
+        } else if (row.itemNumber && serialToSku.has(row.itemNumber)) {
+          sku = serialToSku.get(row.itemNumber);
+          matchMethod = 'ItemNumber → Serial Number';
+          qtyByMethod.itemNumberSerial++;
+        } else {
+          qtyByMethod.unmatched++;
+          matchMethod = 'Unmatched';
+        }
+
+        const grade = gradeFromSku(sku);
+        const offerName = sku ? normalize(`${row.modelType} ${row.capacity} ${grade}`) : '';
+        const offerPrice = offerName ? offerToPrice.get(offerName) : undefined;
+
+        const detail = {
+          SourceIMEI: row.imei,
+          ItemNumber: row.itemNumber,
+          ModelType: row.modelType,
+          Capacity: row.capacity,
+          RawGrade: row.rawGrade,
+          SKU: sku,
+          DerivedGrade: grade,
+          OfferName: offerName,
+          Offer: offerPrice ?? '',
+          MatchMethod: matchMethod
+        };
+        detailRows.push(detail);
+
+        if (!sku) unmatchedRows.push(detail);
+        else if (offerPrice === undefined) missingOfferRows.push(detail);
+
+        if ((idx + 1) % 100 === 0 || idx === costData.rows.length - 1) {
+          log(`Processed ${idx + 1}/${costData.rows.length} cost rows`);
+        }
+      });
+
+      const matchedRows = detailRows.filter(r => r.SKU && r.Offer !== '');
+      let detailTotal = 0;
+      matchedRows.forEach(r => { detailTotal += Number(r.Offer || 0); });
+
+      const bySku = new Map();
+      matchedRows.forEach(r => {
+        if (!bySku.has(r.SKU)) bySku.set(r.SKU, []);
+        bySku.get(r.SKU).push(r);
+      });
+
+      const mixedMode = els.mixedMode.value;
+      const outputRows = [];
+      const conflictRows = [];
+      const location = normalize(els.locationInput.value) || 'HK_HTR_B2B_VZW';
+
+      bySku.forEach((rows, sku) => {
+        const qty = rows.length;
+        const offers = rows.map(r => Number(r.Offer || 0));
+        const uniqueOffers = Array.from(new Set(offers.map(x => Number(x.toFixed(12)))));
+        let finalOffer = offers[0] || 0;
+
+        if (uniqueOffers.length > 1) {
+          if (mixedMode === 'weighted') {
+            finalOffer = offers.reduce((a, b) => a + b, 0) / qty;
+          } else if (mixedMode === 'mode') {
+            const counts = new Map();
+            offers.forEach(v => counts.set(v, (counts.get(v) || 0) + 1));
+            finalOffer = Array.from(counts.entries()).sort((a, b) => b[1] - a[1])[0][0];
+          }
+          conflictRows.push({
+            SKU: sku,
+            Qty: qty,
+            OfferValues: uniqueOffers.join(' | '),
+            OfferNames: Array.from(new Set(rows.map(r => r.OfferName))).join(' | '),
+            Handling: mixedMode === 'weighted' ? 'Weighted average offer used' : mixedMode === 'mode' ? 'Most frequent offer used' : 'First matched offer used'
+          });
+        }
+
+        outputRows.push({
+          SKU: sku,
+          Location: location,
+          Qty: qty,
+          Offer: Number(finalOffer)
+        });
+      });
+
+      outputRows.sort((a, b) => a.SKU.localeCompare(b.SKU));
+
+      let outputTotal = 0;
+      outputRows.forEach(r => { outputTotal += Number(r.Qty || 0) * Number(r.Offer || 0); });
+      const outputDiff = outputTotal - offerTotal;
+      const detailDiff = detailTotal - offerTotal;
+
+      const result = {
+        costRows: costData.rows,
+        outputRows,
+        detailRows,
+        unmatchedRows,
+        missingOfferRows,
+        conflictRows,
+        offerTotal,
+        detailTotal,
+        outputTotal,
+        outputDiff,
+        detailDiff,
+        qtyByMethod,
+        location,
+        meta: {
+          costSheet: costData.sheetName,
+          stockSheet: stockData.sheetName,
+          offerSheet: offerData.sheetName,
+          mixedMode
+        }
+      };
+
+      state.result = result;
+      renderStats(result);
+      renderTable(els.outputPreview, outputRows, ['SKU', 'Location', 'Qty', 'Offer'], 25);
+
+      const reviewBlocks = [];
+      if (result.conflictRows.length) {
+        reviewBlocks.push('<div class="note" style="margin-bottom:8px;">Mixed-offer SKU found. Review these carefully because the same SKU linked to multiple offer names or prices.</div>');
+        reviewBlocks.push('<div id="conflictTable"></div>');
+      }
+      if (result.unmatchedRows.length) {
+        reviewBlocks.push('<div class="note" style="margin:16px 0 8px;">Unmatched cost rows.</div><div id="unmatchedTable"></div>');
+      }
+      if (result.missingOfferRows.length) {
+        reviewBlocks.push('<div class="note" style="margin:16px 0 8px;">Rows with SKU found but no offer match.</div><div id="missingOfferTable"></div>');
+      }
+      els.conflictPreview.innerHTML = reviewBlocks.join('') || '<div class="note">No review items.</div>';
+
+      if (result.conflictRows.length) renderTable(document.getElementById('conflictTable'), result.conflictRows, ['SKU', 'Qty', 'OfferValues', 'OfferNames', 'Handling'], 20);
+      if (result.unmatchedRows.length) renderTable(document.getElementById('unmatchedTable'), result.unmatchedRows, ['SourceIMEI', 'ItemNumber', 'ModelType', 'Capacity', 'MatchMethod'], 20);
+      if (result.missingOfferRows.length) renderTable(document.getElementById('missingOfferTable'), result.missingOfferRows, ['SKU', 'OfferName', 'SourceIMEI', 'ModelType', 'Capacity'], 20);
+
+      els.resultsPanel.classList.remove('hidden');
+      els.previewPanel.classList.remove('hidden');
+      els.conflictPanel.classList.remove('hidden');
+
+      els.resultNote.innerHTML = `
+        Cost sheet: <strong>${result.meta.costSheet}</strong>.<br>
+        Stock sheet: <strong>${result.meta.stockSheet}</strong>.<br>
+        Offer sheet: <strong>${result.meta.offerSheet}</strong>.<br>
+        Match summary: ${result.qtyByMethod.imei} by IMEI, ${result.qtyByMethod.serial} by IMEI field → Serial Number, ${result.qtyByMethod.itemNumberSerial} by ItemNumber → Serial Number, ${result.qtyByMethod.unmatched} unmatched.<br>
+        Detail diff vs offer total: <strong>${currency(result.detailDiff)}</strong>.<br>
+        Grouped diff vs offer total: <strong>${currency(result.outputDiff)}</strong>.
+      `;
+
+      log(`Done. Output rows: ${outputRows.length}, unmatched: ${unmatchedRows.length}, missing offers: ${missingOfferRows.length}, mixed-offer SKU: ${conflictRows.length}`);
+    }
+
+    els.downloadOutput.addEventListener('click', () => {
+      if (!state.result) return;
+      const csv = toCsv(state.result.outputRows, ['SKU', 'Location', 'Qty', 'Offer']);
+      downloadText('sku_offer_output.csv', csv);
+    });
+
+    els.downloadDetail.addEventListener('click', () => {
+      if (!state.result) return;
+      const csv = toCsv(state.result.detailRows, ['SourceIMEI', 'ItemNumber', 'ModelType', 'Capacity', 'RawGrade', 'SKU', 'DerivedGrade', 'OfferName', 'Offer', 'MatchMethod']);
+      downloadText('sku_offer_detail.csv', csv);
+    });
+
+    els.downloadConflicts.addEventListener('click', () => {
+      if (!state.result) return;
+      const rows = state.result.conflictRows.length ? state.result.conflictRows : [{ SKU: '', Qty: '', OfferValues: '', OfferNames: '', Handling: 'No conflicts' }];
+      const csv = toCsv(rows, ['SKU', 'Qty', 'OfferValues', 'OfferNames', 'Handling']);
+      downloadText('sku_offer_conflicts.csv', csv);
+    });
+
+    els.downloadUnmatched.addEventListener('click', () => {
+      if (!state.result) return;
+      const rows = state.result.unmatchedRows.length ? state.result.unmatchedRows : [{ SourceIMEI: '', ItemNumber: '', ModelType: '', Capacity: '', MatchMethod: 'No unmatched rows' }];
+      const csv = toCsv(rows, ['SourceIMEI', 'ItemNumber', 'ModelType', 'Capacity', 'MatchMethod']);
+      downloadText('sku_offer_unmatched.csv', csv);
+    });
+
+    els.dropzone.addEventListener('click', () => els.fileInput.click());
+    els.fileInput.addEventListener('change', (e) => addFiles(e.target.files));
+
+    ['dragenter', 'dragover'].forEach(evt => {
+      els.dropzone.addEventListener(evt, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        els.dropzone.classList.add('drag');
+      });
+    });
+    ['dragleave', 'drop'].forEach(evt => {
+      els.dropzone.addEventListener(evt, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        els.dropzone.classList.remove('drag');
+      });
+    });
+    els.dropzone.addEventListener('drop', (e) => addFiles(e.dataTransfer.files));
+
+    els.processBtn.addEventListener('click', () => {
+      try {
+        processFiles();
+      } catch (err) {
+        console.error(err);
+        log(`Error: ${err.message || err}`);
+        alert(err.message || err);
+      }
+    });
+
+    els.resetBtn.addEventListener('click', () => {
+      state.files = [];
+      state.assigned = { cost: null, offer: null, stock: null };
+      state.result = null;
+      els.fileInput.value = '';
+      els.fileList.innerHTML = '';
+      els.resultsPanel.classList.add('hidden');
+      els.previewPanel.classList.add('hidden');
+      els.conflictPanel.classList.add('hidden');
+      els.outputPreview.innerHTML = '';
+      els.conflictPreview.innerHTML = '';
+      els.stats.innerHTML = '';
+      els.resultNote.innerHTML = '';
+      els.log.textContent = 'No actions yet.';
+      renderFileCards();
+    });
+  </script>
+</body>
+</html>
