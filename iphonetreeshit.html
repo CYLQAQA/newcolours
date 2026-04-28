@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Region Model Grade Offer Cleaner</title>
+  <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+  <style>
+    :root {
+      --bg: #f6f7fb;
+      --card: #ffffff;
+      --text: #172033;
+      --muted: #64748b;
+      --line: #dbe2ee;
+      --brand: #2563eb;
+      --brand-dark: #1d4ed8;
+      --good: #15803d;
+      --warn: #b45309;
+      --bad: #b91c1c;
+      --soft: #eff6ff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      color: var(--text);
+      background: linear-gradient(180deg, #eef4ff 0%, var(--bg) 240px);
+    }
+    .wrap {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 28px 18px 44px;
+    }
+    .hero {
+      display: grid;
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 28px;
+      letter-spacing: -0.02em;
+    }
+    .subtitle {
+      margin: 0;
+      color: var(--muted);
+      max-width: 820px;
+      line-height: 1.5;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 16px;
+      align-items: start;
+    }
+    @media (max-width: 900px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
+      overflow: hidden;
+    }
+    .card-hd {
+      padding: 16px 18px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(248, 250, 252, 0.85);
+      font-weight: 700;
+    }
+    .card-bd { padding: 18px; }
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 700;
+      color: #334155;
+      margin-bottom: 7px;
+    }
+    input[type="file"], input[type="text"], select, textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 12px;
+      padding: 10px 11px;
+      font-size: 14px;
+      outline: none;
+    }
+    input[type="file"] { padding: 9px; }
+    textarea { min-height: 74px; resize: vertical; line-height: 1.4; }
+    input:focus, select:focus, textarea:focus { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(37,99,235,.12); }
+    .field { margin-bottom: 14px; }
+    .two {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .hint { color: var(--muted); font-size: 12px; line-height: 1.4; margin-top: 5px; }
+    .checks { display: grid; gap: 9px; margin: 8px 0 15px; }
+    .check {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      color: #334155;
+      font-size: 13px;
+      line-height: 1.35;
+    }
+    .check input { margin-top: 2px; }
+    .buttons { display: grid; gap: 9px; }
+    button {
+      border: 0;
+      border-radius: 12px;
+      padding: 11px 14px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: .15s ease;
+    }
+    .primary { background: var(--brand); color: white; }
+    .primary:hover { background: var(--brand-dark); }
+    .secondary { background: #e2e8f0; color: #0f172a; }
+    .secondary:hover { background: #cbd5e1; }
+    button:disabled { opacity: .48; cursor: not-allowed; }
+    .status {
+      margin-top: 12px;
+      padding: 11px 12px;
+      border-radius: 12px;
+      font-size: 13px;
+      line-height: 1.4;
+      background: #f8fafc;
+      border: 1px solid var(--line);
+      color: #334155;
+      white-space: pre-wrap;
+    }
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(120px, 1fr));
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    @media (max-width: 700px) { .metrics { grid-template-columns: 1fr 1fr; } }
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: 15px;
+      padding: 13px;
+      background: #fff;
+    }
+    .metric .k { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+    .metric .v { font-size: 22px; font-weight: 800; }
+    .table-wrap {
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      max-height: 610px;
+      background: #fff;
+    }
+    table { border-collapse: collapse; width: 100%; min-width: 720px; }
+    th, td {
+      border-bottom: 1px solid #eef2f7;
+      padding: 9px 10px;
+      text-align: left;
+      font-size: 13px;
+      vertical-align: top;
+      white-space: nowrap;
+    }
+    th {
+      position: sticky;
+      top: 0;
+      background: #f8fafc;
+      z-index: 1;
+      color: #334155;
+      font-weight: 800;
+    }
+    tr:hover td { background: #f8fbff; }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 44px;
+      padding: 3px 8px;
+      background: var(--soft);
+      color: #1e40af;
+      border-radius: 999px;
+      font-weight: 800;
+      font-size: 12px;
+    }
+    .empty {
+      color: var(--muted);
+      padding: 40px 18px;
+      text-align: center;
+    }
+    .warn { color: var(--warn); }
+    .bad { color: var(--bad); }
+    .good { color: var(--good); }
+    .small { font-size: 12px; color: var(--muted); }
+    .footer-note { margin-top: 12px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hero">
+      <h1>Region / Model Grade / Qty / Offer Cleaner</h1>
+      <p class="subtitle">Upload your messy offer workbook. The tool detects region blocks like AU, HK, JP, CA, and US, then exports a clean Excel with exactly four main columns.</p>
+    </div>
+
+    <div class="grid">
+      <section class="card">
+        <div class="card-hd">Input & Settings</div>
+        <div class="card-bd">
+          <div class="field">
+            <label for="fileInput">Excel file</label>
+            <input id="fileInput" type="file" accept=".xlsx,.xls,.csv" />
+            <div class="hint">Works with .xlsx, .xls, or .csv. For Excel, the first sheet is selected by default.</div>
+          </div>
+
+          <div class="field">
+            <label for="sheetSelect">Sheet</label>
+            <select id="sheetSelect" disabled>
+              <option>No file loaded</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="regionCodes">Region codes to detect</label>
+            <textarea id="regionCodes">AU, HK, JP, CA, US, UK, IE, DUB, DUB2, KR, DE</textarea>
+            <div class="hint">Add more codes separated by commas. A row with only the region code starts a new region block.</div>
+          </div>
+
+          <div class="two">
+            <div class="field">
+              <label for="modelCol">Model Grade column</label>
+              <input id="modelCol" type="text" value="A" />
+            </div>
+            <div class="field">
+              <label for="qtyCol">Qty column</label>
+              <input id="qtyCol" type="text" value="C" />
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="offerMode">Offer detection</label>
+            <select id="offerMode">
+              <option value="rowLast" selected>Last non-empty cell in each row</option>
+              <option value="sheetLast">Last used column in the sheet</option>
+              <option value="manual">Manual offer column</option>
+            </select>
+            <div class="hint">Use “last non-empty cell” when the offer column has no header or the sheet has different widths.</div>
+          </div>
+
+          <div class="field" id="manualOfferField" style="display:none;">
+            <label for="offerCol">Manual offer column</label>
+            <input id="offerCol" type="text" value="D" />
+          </div>
+
+          <div class="checks">
+            <label class="check"><input id="dropBlankOffer" type="checkbox" checked /> Drop rows where Offer is blank</label>
+            <label class="check"><input id="dropBlankQty" type="checkbox" /> Drop rows where Qty is blank</label>
+            <label class="check"><input id="includeDebug" type="checkbox" /> Include source row / source offer column in export</label>
+          </div>
+
+          <div class="buttons">
+            <button id="processBtn" class="primary" disabled>Process Preview</button>
+            <button id="exportBtn" class="secondary" disabled>Export Clean Excel</button>
+          </div>
+          <div id="status" class="status">Load a workbook to begin.</div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-hd">Preview</div>
+        <div class="card-bd">
+          <div class="metrics">
+            <div class="metric"><div class="k">Clean rows</div><div class="v" id="metricRows">0</div></div>
+            <div class="metric"><div class="k">Regions</div><div class="v" id="metricRegions">0</div></div>
+            <div class="metric"><div class="k">Total Qty</div><div class="v" id="metricQty">0</div></div>
+            <div class="metric"><div class="k">Blank Offers Dropped</div><div class="v" id="metricDropped">0</div></div>
+          </div>
+          <div class="table-wrap" id="tableWrap"><div class="empty">No preview yet.</div></div>
+          <div class="footer-note">Export creates two tabs: <b>Cleaned</b> and <b>Summary</b>. If debug is selected, it also includes source row and source offer column.</div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+<script>
+(() => {
+  let workbook = null;
+  let currentRows = [];
+  let currentFileName = "cleaned_offer.xlsx";
+  let lastStats = { droppedBlankOffer: 0, droppedBlankQty: 0, skippedNoRegion: 0, skippedHeader: 0 };
+
+  const $ = (id) => document.getElementById(id);
+
+  function setStatus(message, tone = "") {
+    const el = $("status");
+    el.textContent = message;
+    el.className = "status" + (tone ? " " + tone : "");
+  }
+
+  function normalizeText(value) {
+    if (value === null || value === undefined) return "";
+    return String(value)
+      .replace(/\u00a0/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function normalizeRegion(value) {
+    return normalizeText(value).toUpperCase();
+  }
+
+  function parseRegionCodes() {
+    return $("regionCodes").value
+      .split(/[,.\n\r\t ]+/)
+      .map(x => normalizeRegion(x))
+      .filter(Boolean);
+  }
+
+  function colLetterToIndex(letter) {
+    const clean = normalizeText(letter).toUpperCase().replace(/[^A-Z]/g, "");
+    if (!clean) return -1;
+    let idx = 0;
+    for (let i = 0; i < clean.length; i++) idx = idx * 26 + (clean.charCodeAt(i) - 64);
+    return idx - 1;
+  }
+
+  function indexToColLetter(index) {
+    let n = index + 1;
+    let s = "";
+    while (n > 0) {
+      const r = (n - 1) % 26;
+      s = String.fromCharCode(65 + r) + s;
+      n = Math.floor((n - 1) / 26);
+    }
+    return s;
+  }
+
+  function isBlank(value) {
+    return normalizeText(value) === "";
+  }
+
+  function parseNumber(value) {
+    const text = normalizeText(value);
+    if (!text) return "";
+    const negative = /^\(.*\)$/.test(text);
+    const cleaned = text.replace(/[,$£€¥HKDAUDUSDCADJPY\s]/gi, "").replace(/[()]/g, "");
+    const n = Number(cleaned);
+    if (Number.isFinite(n)) return negative ? -n : n;
+    return text;
+  }
+
+  function parseQty(value) {
+    const parsed = parseNumber(value);
+    if (typeof parsed === "number") return parsed;
+    const text = normalizeText(value);
+    if (!text) return "";
+    const m = text.match(/-?\d+(?:\.\d+)?/);
+    return m ? Number(m[0]) : text;
+  }
+
+  function looksLikeHeaderOrTotal(modelText) {
+    const t = normalizeText(modelText).toLowerCase();
+    if (!t) return true;
+    const exactBad = new Set(["model", "model grade", "product", "description", "region", "qty", "quantity", "offer", "usd", "price"]);
+    if (exactBad.has(t)) return true;
+    if (/^(total|subtotal|grand total|sum)$/i.test(t)) return true;
+    return false;
+  }
+
+  function nonEmptyCells(row) {
+    const out = [];
+    for (let i = 0; i < row.length; i++) {
+      if (!isBlank(row[i])) out.push({ index: i, value: row[i] });
+    }
+    return out;
+  }
+
+  function maxUsedColumn(aoa) {
+    let max = -1;
+    for (const row of aoa) {
+      const cells = nonEmptyCells(row);
+      if (cells.length) max = Math.max(max, cells[cells.length - 1].index);
+    }
+    return max;
+  }
+
+  function getOfferCell(row, settings, sheetLastIndex) {
+    let idx = -1;
+    if (settings.offerMode === "manual") idx = settings.offerColIndex;
+    else if (settings.offerMode === "sheetLast") idx = sheetLastIndex;
+    else {
+      for (let i = row.length - 1; i >= 0; i--) {
+        if (!isBlank(row[i])) { idx = i; break; }
+      }
+    }
+
+    if (idx < 0 || idx === settings.modelColIndex || idx === settings.qtyColIndex) {
+      return { raw: "", value: "", col: "" };
+    }
+    const raw = row[idx];
+    return { raw, value: parseNumber(raw), col: indexToColLetter(idx) };
+  }
+
+  function getSheetAOA(sheetName) {
+    const ws = workbook.Sheets[sheetName];
+    return XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", blankrows: false, raw: false });
+  }
+
+  function buildSettings() {
+    const modelColIndex = colLetterToIndex($("modelCol").value || "A");
+    const qtyColIndex = colLetterToIndex($("qtyCol").value || "C");
+    const offerColIndex = colLetterToIndex($("offerCol").value || "D");
+    if (modelColIndex < 0 || qtyColIndex < 0) throw new Error("Model Grade column and Qty column must be valid Excel letters, like A or C.");
+    if ($("offerMode").value === "manual" && offerColIndex < 0) throw new Error("Manual offer column must be a valid Excel letter.");
+    return {
+      regionCodes: parseRegionCodes(),
+      modelColIndex,
+      qtyColIndex,
+      offerMode: $("offerMode").value,
+      offerColIndex,
+      dropBlankOffer: $("dropBlankOffer").checked,
+      dropBlankQty: $("dropBlankQty").checked,
+      includeDebug: $("includeDebug").checked,
+    };
+  }
+
+  function transform() {
+    if (!workbook) throw new Error("Please load a workbook first.");
+    const settings = buildSettings();
+    if (!settings.regionCodes.length) throw new Error("Please enter at least one region code.");
+
+    const sheetName = $("sheetSelect").value;
+    const aoa = getSheetAOA(sheetName);
+    const regionSet = new Set(settings.regionCodes);
+    const sheetLastIndex = maxUsedColumn(aoa);
+    const out = [];
+    const stats = { droppedBlankOffer: 0, droppedBlankQty: 0, skippedNoRegion: 0, skippedHeader: 0, regionRows: 0 };
+    let currentRegion = "";
+
+    for (let r = 0; r < aoa.length; r++) {
+      const row = aoa[r] || [];
+      const cells = nonEmptyCells(row);
+      if (!cells.length) continue;
+
+      const firstCell = normalizeRegion(cells[0].value);
+      const modelCellRegion = normalizeRegion(row[settings.modelColIndex]);
+      const isRegionRow = (cells.length <= 2 && regionSet.has(firstCell)) || regionSet.has(modelCellRegion);
+
+      if (isRegionRow) {
+        currentRegion = regionSet.has(modelCellRegion) ? modelCellRegion : firstCell;
+        stats.regionRows++;
+        continue;
+      }
+
+      const modelGrade = normalizeText(row[settings.modelColIndex]);
+      if (!currentRegion) { stats.skippedNoRegion++; continue; }
+      if (!modelGrade || regionSet.has(normalizeRegion(modelGrade)) || looksLikeHeaderOrTotal(modelGrade)) {
+        stats.skippedHeader++;
+        continue;
+      }
+
+      const qty = parseQty(row[settings.qtyColIndex]);
+      const offer = getOfferCell(row, settings, sheetLastIndex);
+      const offerBlank = isBlank(offer.raw);
+      const qtyBlank = isBlank(row[settings.qtyColIndex]);
+
+      if (settings.dropBlankOffer && offerBlank) { stats.droppedBlankOffer++; continue; }
+      if (settings.dropBlankQty && qtyBlank) { stats.droppedBlankQty++; continue; }
+      if (offerBlank && qtyBlank) { stats.skippedHeader++; continue; }
+
+      const cleanRow = {
+        Region: currentRegion,
+        "Model Grade": modelGrade,
+        Qty: qty,
+        Offer: offer.value,
+      };
+      if (settings.includeDebug) {
+        cleanRow["Source Sheet"] = sheetName;
+        cleanRow["Source Row"] = r + 1;
+        cleanRow["Offer Source Column"] = offer.col;
+        cleanRow["Raw Offer"] = normalizeText(offer.raw);
+      }
+      out.push(cleanRow);
+    }
+
+    currentRows = out;
+    lastStats = stats;
+    renderPreview(out, stats);
+
+    const regions = [...new Set(out.map(r => r.Region))];
+    const totalQty = out.reduce((sum, r) => sum + (typeof r.Qty === "number" ? r.Qty : 0), 0);
+    setStatus(
+      `Processed sheet: ${sheetName}\nClean rows: ${out.length}\nRegions detected: ${regions.join(", ") || "none"}\nTotal Qty: ${totalQty}\nRows dropped for blank Offer: ${stats.droppedBlankOffer}`,
+      out.length ? "good" : "warn"
+    );
+    $("exportBtn").disabled = !out.length;
+  }
+
+  function summarize(rows) {
+    const map = new Map();
+    for (const r of rows) {
+      const key = r.Region || "";
+      if (!map.has(key)) map.set(key, { Region: key, Rows: 0, "Total Qty": 0, "Offer Rows": 0 });
+      const item = map.get(key);
+      item.Rows += 1;
+      if (typeof r.Qty === "number") item["Total Qty"] += r.Qty;
+      if (!isBlank(r.Offer)) item["Offer Rows"] += 1;
+    }
+    return [...map.values()].sort((a,b) => a.Region.localeCompare(b.Region));
+  }
+
+  function renderPreview(rows, stats) {
+    const regions = new Set(rows.map(r => r.Region));
+    const totalQty = rows.reduce((sum, r) => sum + (typeof r.Qty === "number" ? r.Qty : 0), 0);
+    $("metricRows").textContent = rows.length.toLocaleString();
+    $("metricRegions").textContent = regions.size.toLocaleString();
+    $("metricQty").textContent = totalQty.toLocaleString();
+    $("metricDropped").textContent = stats.droppedBlankOffer.toLocaleString();
+
+    const wrap = $("tableWrap");
+    if (!rows.length) {
+      wrap.innerHTML = '<div class="empty">No rows found. Check region codes, qty column, or offer detection settings.</div>';
+      return;
+    }
+
+    const preview = rows.slice(0, 500);
+    const cols = Object.keys(preview[0]);
+    let html = '<table><thead><tr>' + cols.map(c => `<th>${escapeHtml(c)}</th>`).join('') + '</tr></thead><tbody>';
+    for (const row of preview) {
+      html += '<tr>' + cols.map(c => {
+        const value = row[c];
+        if (c === "Region") return `<td><span class="pill">${escapeHtml(value)}</span></td>`;
+        return `<td>${escapeHtml(value)}</td>`;
+      }).join('') + '</tr>';
+    }
+    html += '</tbody></table>';
+    if (rows.length > preview.length) html += `<div class="small" style="padding:10px 12px;">Showing first ${preview.length} of ${rows.length} rows.</div>`;
+    wrap.innerHTML = html;
+  }
+
+  function escapeHtml(value) {
+    return normalizeText(value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
+  function exportCleaned() {
+    if (!currentRows.length) return;
+    const wb = XLSX.utils.book_new();
+    const cleanWs = XLSX.utils.json_to_sheet(currentRows);
+    cleanWs["!cols"] = [
+      { wch: 12 },
+      { wch: 42 },
+      { wch: 12 },
+      { wch: 14 },
+      { wch: 18 },
+      { wch: 12 },
+      { wch: 18 },
+      { wch: 16 },
+    ];
+    XLSX.utils.book_append_sheet(wb, cleanWs, "Cleaned");
+
+    const summaryRows = summarize(currentRows);
+    const summaryWs = XLSX.utils.json_to_sheet(summaryRows);
+    summaryWs["!cols"] = [{ wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 12 }];
+    XLSX.utils.book_append_sheet(wb, summaryWs, "Summary");
+
+    const base = currentFileName.replace(/\.[^.]+$/, "") || "offer_file";
+    XLSX.writeFile(wb, `${base}_cleaned_region_model_grade_offer.xlsx`);
+  }
+
+  function loadWorkbook(file) {
+    currentFileName = file.name || "offer_file.xlsx";
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        workbook = XLSX.read(e.target.result, { type: "array", cellDates: true });
+        const select = $("sheetSelect");
+        select.innerHTML = "";
+        workbook.SheetNames.forEach((name) => {
+          const opt = document.createElement("option");
+          opt.value = name;
+          opt.textContent = name;
+          select.appendChild(opt);
+        });
+        select.disabled = false;
+        $("processBtn").disabled = false;
+        $("exportBtn").disabled = true;
+        currentRows = [];
+        renderPreview([], { droppedBlankOffer: 0, droppedBlankQty: 0, skippedNoRegion: 0, skippedHeader: 0 });
+        setStatus(`Loaded: ${file.name}\nSheets: ${workbook.SheetNames.join(", ")}\nClick Process Preview to clean it.`, "good");
+      } catch (err) {
+        workbook = null;
+        setStatus("Failed to read workbook: " + err.message, "bad");
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  $("fileInput").addEventListener("change", (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (file) loadWorkbook(file);
+  });
+
+  $("processBtn").addEventListener("click", () => {
+    try { transform(); }
+    catch (err) { setStatus(err.message, "bad"); }
+  });
+
+  $("exportBtn").addEventListener("click", exportCleaned);
+  $("sheetSelect").addEventListener("change", () => { if (workbook) transform(); });
+  $("offerMode").addEventListener("change", () => {
+    $("manualOfferField").style.display = $("offerMode").value === "manual" ? "block" : "none";
+  });
+})();
+</script>
+</body>
+</html>
