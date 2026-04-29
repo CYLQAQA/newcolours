@@ -1,0 +1,1089 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>APAC Mac Reverse Order Tool</title>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <style>
+    :root {
+      --bg: #f6f7f8;
+      --card: #ffffff;
+      --text: #17202a;
+      --muted: #5f6b7a;
+      --line: #d9dee7;
+      --green: #2e7d32;
+      --green-soft: #e8f4ea;
+      --blue: #1f5fbf;
+      --orange-soft: #fff3df;
+      --red-soft: #ffecec;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.45;
+    }
+    header {
+      padding: 22px 28px;
+      background: #1f2937;
+      color: white;
+    }
+    header h1 { margin: 0 0 6px 0; font-size: 24px; }
+    header p { margin: 0; color: #d1d5db; }
+    main {
+      padding: 24px;
+      max-width: 1280px;
+      margin: 0 auto;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 1px 3px rgba(17, 24, 39, 0.06);
+    }
+    .wide { grid-column: 1 / -1; }
+    h2 { font-size: 18px; margin: 0 0 12px 0; }
+    h3 { font-size: 15px; margin: 14px 0 8px 0; }
+    label { display: block; font-weight: 700; margin-bottom: 8px; }
+    input[type="file"] { width: 100%; }
+    textarea {
+      width: 100%;
+      min-height: 140px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      resize: vertical;
+      font-family: Consolas, Monaco, monospace;
+      font-size: 13px;
+      background: #fbfbfc;
+    }
+    .hint { color: var(--muted); font-size: 13px; margin-top: 8px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+    button {
+      border: none;
+      border-radius: 8px;
+      padding: 10px 14px;
+      cursor: pointer;
+      font-weight: 700;
+      color: white;
+      background: var(--green);
+    }
+    button.secondary { background: var(--blue); }
+    button.light { background: #4b5563; }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    .status {
+      white-space: pre-wrap;
+      background: #0f172a;
+      color: #e5e7eb;
+      padding: 12px;
+      border-radius: 10px;
+      min-height: 110px;
+      max-height: 260px;
+      overflow: auto;
+      font-family: Consolas, Monaco, monospace;
+      font-size: 12px;
+    }
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .metric {
+      border: 1px solid var(--line);
+      background: #fbfbfc;
+      border-radius: 10px;
+      padding: 12px;
+    }
+    .metric .num { font-size: 22px; font-weight: 800; color: #111827; }
+    .metric .label { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .keyboard-list {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .check-item {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      border: 1px solid var(--line);
+      background: #fbfbfc;
+      border-radius: 8px;
+      padding: 8px 10px;
+      min-height: 38px;
+    }
+    .check-item input { transform: translateY(1px); }
+    .check-item span { font-size: 13px; overflow-wrap: anywhere; }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      background: white;
+      font-size: 12px;
+    }
+    th, td {
+      border: 1px solid var(--line);
+      padding: 6px 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: var(--green-soft);
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    .table-wrap {
+      max-height: 420px;
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      margin-top: 10px;
+    }
+    .pill {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: var(--green-soft);
+      color: #1b5e20;
+      font-weight: 700;
+      font-size: 12px;
+      margin-left: 6px;
+    }
+    .warning {
+      background: var(--orange-soft);
+      border: 1px solid #f3c16b;
+      border-radius: 10px;
+      padding: 10px;
+      margin-top: 10px;
+      color: #6b4200;
+      font-size: 13px;
+    }
+    .error {
+      background: var(--red-soft);
+      border: 1px solid #f0a0a0;
+      border-radius: 10px;
+      padding: 10px;
+      margin-top: 10px;
+      color: #7f1d1d;
+      font-size: 13px;
+    }
+    .small-row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+      color: var(--muted);
+      font-size: 13px;
+      margin-top: 10px;
+    }
+    .small-row label {
+      margin: 0;
+      font-weight: 400;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    @media (max-width: 900px) {
+      .grid { grid-template-columns: 1fr; }
+      .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .keyboard-list { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>APAC Mac Reverse Order Tool</h1>
+    <p>Match customer Ref.no + Offer back to original stock SKU, location_code, quantity, and offer.</p>
+  </header>
+
+  <main>
+    <div id="libraryWarning" class="error" style="display:none; margin-bottom:16px;">
+      Excel library failed to load. Open this HTML with internet access, or use a version with the library embedded.
+    </div>
+
+    <section class="grid">
+      <div class="card">
+        <h2>1. Customer Order</h2>
+        <label for="orderFile">Upload order file, optional</label>
+        <input id="orderFile" type="file" accept=".xlsx,.xls,.csv,.txt" />
+        <div class="hint">Expected columns: <b>Ref.no</b> and <b>Offer</b>. If no header, first two columns are used.</div>
+        <h3>Or paste order here</h3>
+        <textarea id="orderPaste" placeholder="Ref.no&#9;Offer&#10;LP-AP-A14213-25S-M2G08-W-8GB-HK&#9;500"></textarea>
+      </div>
+
+      <div class="card">
+        <h2>2. Original Stock List</h2>
+        <label for="stockFile">Upload stock list</label>
+        <input id="stockFile" type="file" accept=".xlsx,.xls,.csv" />
+        <div class="hint">Required columns include SKU, location_code, qty_available, Category, Colour. Network is used as keyboard filter.</div>
+      </div>
+
+      <div class="card">
+        <h2>3. Product Mapping</h2>
+        <label for="productFile">Upload product mapping</label>
+        <input id="productFile" type="file" accept=".xlsx,.xls,.csv" />
+        <div class="hint">Required columns: <b>sku</b>, <b>pricing_sku</b>, <b>en_name</b>.</div>
+        <div class="actions">
+          <button id="loadBtn">Load & Match</button>
+          <button id="resetBtn" class="light">Reset</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="card wide" style="margin-top:16px;">
+      <h2>Keyboard / Network Filter <span id="keyboardCount" class="pill" style="display:none;"></span></h2>
+      <div class="hint">The tool lists available values from the stock list <b>Network</b> column. All are checked by default. Uncheck keyboards the customer does not want.</div>
+      <div class="small-row">
+        <button id="selectAllKeyboard" class="light" disabled>Select all</button>
+        <button id="clearAllKeyboard" class="light" disabled>Clear all</button>
+        <button id="proceedBtn" class="secondary" disabled>Proceed with selected keyboards</button>
+        <label><input id="aggregateInvoice" type="checkbox" checked /> Aggregate invoice by SKU + Location Code + Offer</label>
+      </div>
+      <div id="keyboardList" class="keyboard-list"></div>
+    </section>
+
+    <section class="card wide" style="margin-top:16px;">
+      <h2>Summary</h2>
+      <div class="summary">
+        <div class="metric"><div id="mOrder" class="num">0</div><div class="label">Order Ref.no</div></div>
+        <div class="metric"><div id="mMatchedRef" class="num">0</div><div class="label">Matched Ref.no</div></div>
+        <div class="metric"><div id="mMatchedRows" class="num">0</div><div class="label">Matched stock rows</div></div>
+        <div class="metric"><div id="mSelectedRows" class="num">0</div><div class="label">Selected rows</div></div>
+        <div class="metric"><div id="mSelectedQty" class="num">0</div><div class="label">Selected qty</div></div>
+      </div>
+      <div id="unmatchedBox" class="warning" style="display:none;"></div>
+    </section>
+
+    <section class="card wide" style="margin-top:16px;">
+      <h2>Downloads</h2>
+      <div class="actions">
+        <button id="downloadCsvBtn" disabled>Download Invoice CSV</button>
+        <button id="downloadValidationBtn" class="secondary" disabled>Download Order Validation Excel</button>
+      </div>
+      <div class="hint">Invoice CSV columns: <b>sku, Location Code, qty, offer</b>. Validation shows detailed stock rows for checking.</div>
+    </section>
+
+    <section class="card wide" style="margin-top:16px;">
+      <h2>Log</h2>
+      <div id="log" class="status">Waiting for files...</div>
+    </section>
+
+    <section class="card wide" style="margin-top:16px;">
+      <h2>Validation Preview <span id="previewCount" class="pill" style="display:none;"></span></h2>
+      <div id="previewWrap" class="table-wrap" style="display:none;"></div>
+    </section>
+  </main>
+
+<script>
+(function () {
+  const BLANK_KEYBOARD = "(Blank / Missing)";
+
+  const LOCATION_CODE_MAP = {
+    "AU_B2B": "AU",
+    "CA_B2B": "CA",
+    "CA_B2B_Boxed": "CA",
+    "AU_IE_B2B": "AU_IE",
+    "IE_IE_MVA_B2B": "IE",
+    "IE_IE_VAT_B2B": "IE",
+    "KR_B2B": "KR",
+    "EU_MVAT": "IE",
+    "HK_TOTEM_B2B": "HK",
+    "SCHJP": "JP",
+    "UK_MRC_MVA_B2B": "UK",
+    "UK_MRC_VAT_B2B": "UK",
+    "US_B2B": "US",
+    "US_B2B_2": "US",
+    "US_B2B_Boxed": "US",
+    "US_IE_B2B": "Not included",
+    "HK_IE_FSET_B2B": "Not included",
+    "HK_HTR_B2B": "HK",
+    "HK_ARVATO_B2B": "HK",
+    "US_MI_B2B": "US",
+    "DUB_B2B": "DUB",
+    "US_B2B_PACKAGED": "US",
+    "JP_B2B_BOXED": "JP",
+    "DUB_B2B_BOXED": "DUB",
+    "DUB_B2B_2": "DUB",
+    "US_B2B_2_BOXED": "US",
+    "IE_IE_VAT_B2B_BOXED": "IE",
+    "HK_HTR_B2B_BOXED": "HK",
+    "UK_ENV_VAT_B2B": "UK",
+    "US_B2B_Pricelock_Boxed": "US",
+    "US_B2B_2_Pricelock_Boxed": "US",
+    "US_MI_B2B_Boxed": "US"
+  };
+
+  const PRODUCT_FAMILY_MAP = {
+    "LP-AP-P": "MacBook Pro",
+    "LP-AP-M": "MacBook",
+    "LP-AP-A": "MacBook Air",
+    "CP-AP-R": "Mac Pro",
+    "CP-AP-N": "Mac Mini",
+    "CP-AP-I": "iMac",
+    "CP-AP-M": "Mac Studio",
+    "PH-AP-I": "iPhone"
+  };
+
+  const GRADE_CONDITION_MAP = {
+    "A": "Working",
+    "B": "Working",
+    "C": "Working",
+    "Z": "Working",
+    "W": "Working",
+    "WP": "Working",
+    "Cx": "Damaged",
+    "D": "Damaged",
+    "Dx": "Damaged",
+    "F": "Damaged",
+    "E": "Non-Sellable",
+    "AS": "As-New",
+    "NB": "New in Box",
+    "N": "New",
+    "CP": "CPO"
+  };
+
+  const TARGET_COUNTRIES = new Set(["HK", "JP", "AU", "CA", "DUB"]);
+  const TARGET_CATEGORIES = new Set(["Laptops", "Computers"]);
+
+  const state = {
+    orderItems: [],
+    orderMap: new Map(),
+    stockRows: [],
+    productLookup: new Map(),
+    matchedRows: [],
+    selectedRows: [],
+    invoiceRows: [],
+    validationRows: [],
+    unmatchedOrders: [],
+    warnings: []
+  };
+
+  const els = {
+    orderFile: document.getElementById("orderFile"),
+    orderPaste: document.getElementById("orderPaste"),
+    stockFile: document.getElementById("stockFile"),
+    productFile: document.getElementById("productFile"),
+    loadBtn: document.getElementById("loadBtn"),
+    resetBtn: document.getElementById("resetBtn"),
+    log: document.getElementById("log"),
+    keyboardList: document.getElementById("keyboardList"),
+    keyboardCount: document.getElementById("keyboardCount"),
+    selectAllKeyboard: document.getElementById("selectAllKeyboard"),
+    clearAllKeyboard: document.getElementById("clearAllKeyboard"),
+    proceedBtn: document.getElementById("proceedBtn"),
+    aggregateInvoice: document.getElementById("aggregateInvoice"),
+    downloadCsvBtn: document.getElementById("downloadCsvBtn"),
+    downloadValidationBtn: document.getElementById("downloadValidationBtn"),
+    mOrder: document.getElementById("mOrder"),
+    mMatchedRef: document.getElementById("mMatchedRef"),
+    mMatchedRows: document.getElementById("mMatchedRows"),
+    mSelectedRows: document.getElementById("mSelectedRows"),
+    mSelectedQty: document.getElementById("mSelectedQty"),
+    unmatchedBox: document.getElementById("unmatchedBox"),
+    previewWrap: document.getElementById("previewWrap"),
+    previewCount: document.getElementById("previewCount"),
+    libraryWarning: document.getElementById("libraryWarning")
+  };
+
+  if (typeof XLSX === "undefined") {
+    els.libraryWarning.style.display = "block";
+    els.loadBtn.disabled = true;
+  }
+
+  function log(lines) {
+    els.log.textContent = Array.isArray(lines) ? lines.join("\n") : String(lines);
+  }
+
+  function appendLog(line) {
+    els.log.textContent += "\n" + line;
+  }
+
+  function safeText(value) {
+    return String(value == null ? "" : value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
+  function normalizeHeader(value) {
+    return String(value == null ? "" : value)
+      .trim()
+      .toLowerCase()
+      .replace(/[\s._\-\/\\]+/g, "");
+  }
+
+  function normalizeKey(value) {
+    return String(value == null ? "" : value)
+      .replace(/\u00a0/g, " ")
+      .trim()
+      .toUpperCase();
+  }
+
+  function normalizeRef(value) {
+    return String(value == null ? "" : value)
+      .replace(/\u00a0/g, " ")
+      .trim()
+      .replace(/\s+/g, " ")
+      .toUpperCase();
+  }
+
+  function cleanOffer(value) {
+    const raw = String(value == null ? "" : value).trim();
+    const match = raw.replace(/,/g, "").match(/-?\d+(\.\d+)?/);
+    return match ? match[0] : raw;
+  }
+
+  function parseNumber(value) {
+    const raw = String(value == null ? "" : value).replace(/,/g, "").trim();
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function getCell(row, idx) {
+    return idx >= 0 && idx < row.length ? row[idx] : "";
+  }
+
+  function readFileAsArrayBuffer(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (event) => resolve(event.target.result);
+      reader.onerror = () => reject(reader.error || new Error("Failed to read file"));
+      reader.readAsArrayBuffer(file);
+    });
+  }
+
+  async function fileToRows(file) {
+    const buffer = await readFileAsArrayBuffer(file);
+    const wb = XLSX.read(buffer, { type: "array", raw: false, cellDates: false });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    return XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: false });
+  }
+
+  function pasteToRows(text) {
+    const lines = String(text || "").split(/\r?\n/).filter(line => line.trim() !== "");
+    return lines.map(line => {
+      if (line.includes("\t")) return line.split("\t");
+      if (line.includes(",")) return line.split(",");
+      return line.trim().split(/\s{2,}/);
+    });
+  }
+
+  function findHeaderRow(rows, requiredAliases, maxScanRows = 25) {
+    for (let r = 0; r < Math.min(rows.length, maxScanRows); r++) {
+      const headers = rows[r].map(normalizeHeader);
+      const map = {};
+      let found = 0;
+
+      for (const [field, aliases] of Object.entries(requiredAliases)) {
+        const aliasSet = aliases.map(normalizeHeader);
+        const idx = headers.findIndex(h => aliasSet.includes(h));
+        if (idx >= 0) {
+          map[field] = idx;
+          found++;
+        }
+      }
+
+      if (found === Object.keys(requiredAliases).length) {
+        return { rowIndex: r, map };
+      }
+    }
+    return null;
+  }
+
+  function findHeaderIndexes(rows, aliasesByField, maxScanRows = 25) {
+    for (let r = 0; r < Math.min(rows.length, maxScanRows); r++) {
+      const headers = rows[r].map(normalizeHeader);
+      const map = {};
+      let found = 0;
+
+      for (const [field, aliases] of Object.entries(aliasesByField)) {
+        const aliasSet = aliases.map(normalizeHeader);
+        const idx = headers.findIndex(h => aliasSet.includes(h));
+        if (idx >= 0) {
+          map[field] = idx;
+          found++;
+        }
+      }
+
+      if (found >= 2) return { rowIndex: r, map };
+    }
+    return null;
+  }
+
+  function getOptionalIndex(headerRow, aliases) {
+    const headers = headerRow.map(normalizeHeader);
+    const aliasSet = aliases.map(normalizeHeader);
+    return headers.findIndex(h => aliasSet.includes(h));
+  }
+
+  function extractRamSizes(colour) {
+    if (colour == null) return "";
+    const text = String(colour).trim();
+    const matches = text.match(/\b\d+\s*GB\b/gi);
+    if (!matches) return "";
+    return matches.map(m => m.replace(/\s+/g, "").toUpperCase()).join(",");
+  }
+
+  function stripGradeFromSku(sku) {
+    const s = String(sku == null ? "" : sku).trim();
+    if (!s.includes("-")) return s;
+    const parts = s.split("-");
+    parts.pop();
+    return parts.join("-");
+  }
+
+  function getGradeFromSku(sku) {
+    const s = String(sku == null ? "" : sku).trim();
+    if (!s.includes("-")) return "";
+    const parts = s.split("-");
+    return parts[parts.length - 1];
+  }
+
+  function mapLocationCode(locationCode) {
+    const key = String(locationCode == null ? "" : locationCode).trim();
+    return LOCATION_CODE_MAP[key] || "";
+  }
+
+  function mapProductFamily(sku) {
+    const code = String(sku == null ? "" : sku).trim().slice(0, 7);
+    return PRODUCT_FAMILY_MAP[code] || "";
+  }
+
+  function mapCondition(grade) {
+    return GRADE_CONDITION_MAP[String(grade == null ? "" : grade).trim()] || "";
+  }
+
+  function buildOutputSku(base, ram, country) {
+    const parts = [];
+    if (String(base || "").trim()) parts.push(String(base).trim());
+    if (String(ram || "").trim()) parts.push(String(ram).trim());
+    if (String(country || "").trim()) parts.push(String(country).trim());
+    return parts.join("-");
+  }
+
+  async function parseOrderInput() {
+    let rows = [];
+    if (els.orderFile.files && els.orderFile.files[0]) {
+      rows = await fileToRows(els.orderFile.files[0]);
+    } else {
+      rows = pasteToRows(els.orderPaste.value);
+    }
+
+    if (!rows.length) throw new Error("No order data found. Upload an order file or paste Ref.no + Offer.");
+
+    const headerInfo = findHeaderIndexes(rows, {
+      ref: ["Ref.no", "Ref No", "Ref", "Reference", "Ref Code", "Reference Code", "SKU", "Ref.no."],
+      offer: ["Offer", "Offer Price", "Price", "Final Offer", "Bid"]
+    });
+
+    let startRow = 0;
+    let refIdx = 0;
+    let offerIdx = 1;
+
+    if (headerInfo && headerInfo.map.ref != null && headerInfo.map.offer != null) {
+      startRow = headerInfo.rowIndex + 1;
+      refIdx = headerInfo.map.ref;
+      offerIdx = headerInfo.map.offer;
+    }
+
+    const orderItems = [];
+    const orderMap = new Map();
+    const warnings = [];
+
+    for (let r = startRow; r < rows.length; r++) {
+      const row = rows[r];
+      const ref = String(getCell(row, refIdx) || "").trim();
+      const offer = cleanOffer(getCell(row, offerIdx));
+      if (!ref) continue;
+
+      const key = normalizeRef(ref);
+      if (!key) continue;
+
+      if (orderMap.has(key)) {
+        const existing = orderMap.get(key);
+        if (String(existing.offer) !== String(offer)) {
+          warnings.push(`Duplicate Ref.no with different offer: ${ref}. Keeping first offer ${existing.offer}, ignored ${offer}.`);
+        }
+        continue;
+      }
+
+      const item = { ref, refKey: key, offer, sourceRow: r + 1 };
+      orderItems.push(item);
+      orderMap.set(key, item);
+    }
+
+    if (!orderItems.length) throw new Error("No valid order rows found. Need Ref.no and Offer.");
+
+    state.orderItems = orderItems;
+    state.orderMap = orderMap;
+    state.warnings.push(...warnings);
+  }
+
+  async function parseProductFile() {
+    if (!els.productFile.files || !els.productFile.files[0]) {
+      throw new Error("Please upload the product mapping file.");
+    }
+
+    const rows = await fileToRows(els.productFile.files[0]);
+    const headerInfo = findHeaderRow(rows, {
+      sku: ["sku"],
+      pricing_sku: ["pricing_sku", "pricing sku", "pricingSKU"],
+      en_name: ["en_name", "en name", "English Name", "name"]
+    });
+
+    if (!headerInfo) throw new Error("Product mapping file must contain sku, pricing_sku, and en_name columns.");
+
+    const { rowIndex, map } = headerInfo;
+    const lookup = new Map();
+
+    for (let r = rowIndex + 1; r < rows.length; r++) {
+      const row = rows[r];
+      const sku = String(getCell(row, map.sku) || "").trim();
+      if (!sku) continue;
+      const key = normalizeKey(sku);
+      if (lookup.has(key)) continue;
+      lookup.set(key, {
+        sku,
+        pricing_sku: String(getCell(row, map.pricing_sku) || "").trim(),
+        en_name: String(getCell(row, map.en_name) || "").trim()
+      });
+    }
+
+    if (!lookup.size) throw new Error("No usable rows found in product mapping file.");
+    state.productLookup = lookup;
+  }
+
+  async function parseStockFile() {
+    if (!els.stockFile.files || !els.stockFile.files[0]) {
+      throw new Error("Please upload the original stock list file.");
+    }
+
+    const rows = await fileToRows(els.stockFile.files[0]);
+    const headerInfo = findHeaderRow(rows, {
+      Category: ["Category"],
+      location_code: ["location_code", "location code", "Location Code"],
+      SKU: ["SKU", "sku"],
+      Colour: ["Colour", "Color"],
+      qty_available: ["qty_available", "qty available", "Qty_Available", "Quantity", "Qty"]
+    });
+
+    if (!headerInfo) {
+      throw new Error("Stock list must contain Category, location_code, SKU, Colour, and qty_available columns.");
+    }
+
+    const headerRow = rows[headerInfo.rowIndex];
+    const map = Object.assign({}, headerInfo.map, {
+      Capacity: getOptionalIndex(headerRow, ["Capacity"]),
+      Network: getOptionalIndex(headerRow, ["Network"]),
+      Variant: getOptionalIndex(headerRow, ["Variant"]),
+      MPN: getOptionalIndex(headerRow, ["MPN"]),
+      Keyboard: getOptionalIndex(headerRow, ["Keyboard"])
+    });
+
+    const stockRows = [];
+    for (let r = headerInfo.rowIndex + 1; r < rows.length; r++) {
+      const row = rows[r];
+      const sku = String(getCell(row, map.SKU) || "").trim();
+      if (!sku) continue;
+
+      const category = String(getCell(row, map.Category) || "").trim();
+      if (!TARGET_CATEGORIES.has(category)) continue;
+
+      const locationCode = String(getCell(row, map.location_code) || "").trim();
+      const country = mapLocationCode(locationCode);
+      if (!TARGET_COUNTRIES.has(country)) continue;
+
+      const qty = parseNumber(getCell(row, map.qty_available));
+      if (qty <= 0) continue;
+
+      const colour = String(getCell(row, map.Colour) || "").trim();
+      const grade = getGradeFromSku(sku);
+      const baseSku = stripGradeFromSku(sku);
+      const condition = mapCondition(grade);
+      const ramSize = extractRamSizes(colour);
+      const product = state.productLookup.get(normalizeKey(baseSku));
+
+      let shortSku = "";
+      let description = "";
+      if (product && product.pricing_sku) {
+        shortSku = product.pricing_sku + (grade ? "-" + grade : "");
+      }
+      if (product && product.en_name) {
+        description = product.en_name + (grade ? "-" + grade : "");
+      }
+
+      let outputCondition = "";
+      let refNo = "";
+
+      if (["CP", "NB"].includes(grade)) {
+        outputCondition = "CPO NB";
+        refNo = buildOutputSku(sku, ramSize, country);
+      } else if (condition === "Working" || condition === "Damaged") {
+        outputCondition = condition;
+        if (!shortSku) {
+          state.warnings.push(`Missing product mapping for base SKU ${baseSku}; cannot build Working/Damaged Ref.no for stock row ${r + 1}.`);
+          continue;
+        }
+        refNo = buildOutputSku(shortSku, ramSize, country);
+      } else {
+        continue;
+      }
+
+      if (!refNo) continue;
+
+      const network = map.Network >= 0 ? String(getCell(row, map.Network) || "").trim() : "";
+
+      stockRows.push({
+        refNo,
+        refKey: normalizeRef(refNo),
+        sku,
+        baseSku,
+        grade,
+        modelGrade: description,
+        productFamily: mapProductFamily(sku),
+        Capacity: map.Capacity >= 0 ? String(getCell(row, map.Capacity) || "").trim() : "",
+        Colour: colour,
+        Network: network,
+        Variant: map.Variant >= 0 ? String(getCell(row, map.Variant) || "").trim() : "",
+        MPN: map.MPN >= 0 ? String(getCell(row, map.MPN) || "").trim() : "",
+        Keyboard: map.Keyboard >= 0 ? String(getCell(row, map.Keyboard) || "").trim() : "",
+        locationCode,
+        country,
+        qty,
+        outputCondition,
+        sourceRow: r + 1
+      });
+    }
+
+    state.stockRows = stockRows;
+  }
+
+  function matchOrderToStock() {
+    const matchedRows = [];
+    const matchedRefKeys = new Set();
+
+    for (const stockRow of state.stockRows) {
+      const order = state.orderMap.get(stockRow.refKey);
+      if (!order) continue;
+      matchedRefKeys.add(stockRow.refKey);
+      matchedRows.push(Object.assign({}, stockRow, {
+        orderRef: order.ref,
+        offer: order.offer
+      }));
+    }
+
+    const unmatchedOrders = state.orderItems.filter(item => !matchedRefKeys.has(item.refKey));
+    state.matchedRows = matchedRows;
+    state.unmatchedOrders = unmatchedOrders;
+  }
+
+  function renderKeyboardFilters() {
+    const counts = new Map();
+    for (const row of state.matchedRows) {
+      const key = row.Network ? row.Network : BLANK_KEYBOARD;
+      counts.set(key, (counts.get(key) || 0) + row.qty);
+    }
+
+    const entries = Array.from(counts.entries()).sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+    els.keyboardList.innerHTML = "";
+
+    for (const [keyboard, qty] of entries) {
+      const id = "kb_" + btoa(unescape(encodeURIComponent(keyboard))).replace(/=/g, "").replace(/[^a-zA-Z0-9]/g, "");
+      const div = document.createElement("label");
+      div.className = "check-item";
+      div.innerHTML = `<input type="checkbox" class="keyboardCheck" value="${safeText(keyboard)}" checked /> <span>${safeText(keyboard)} — Qty ${safeText(qty)}</span>`;
+      els.keyboardList.appendChild(div);
+    }
+
+    els.keyboardCount.textContent = `${entries.length} options`;
+    els.keyboardCount.style.display = entries.length ? "inline-block" : "none";
+
+    const hasMatches = state.matchedRows.length > 0;
+    els.selectAllKeyboard.disabled = !hasMatches;
+    els.clearAllKeyboard.disabled = !hasMatches;
+    els.proceedBtn.disabled = !hasMatches;
+  }
+
+  function getSelectedKeyboardSet() {
+    const set = new Set();
+    document.querySelectorAll(".keyboardCheck").forEach(cb => {
+      if (cb.checked) set.add(cb.value);
+    });
+    return set;
+  }
+
+  function buildOutputsAfterKeyboardFilter() {
+    const selectedKeys = getSelectedKeyboardSet();
+    const selectedRows = state.matchedRows.filter(row => {
+      const key = row.Network ? row.Network : BLANK_KEYBOARD;
+      return selectedKeys.has(key);
+    });
+
+    state.selectedRows = selectedRows;
+
+    const validationRows = selectedRows.map(row => ({
+      "Ref.no": row.orderRef || row.refNo,
+      "sku": row.sku,
+      "model grade": row.modelGrade,
+      "Capacity": row.Capacity,
+      "Colour": row.Colour,
+      "Network": row.Network,
+      "Variant": row.Variant,
+      "Location Code": row.locationCode,
+      "qty": row.qty,
+      "offer": row.offer
+    }));
+    state.validationRows = validationRows;
+
+    if (els.aggregateInvoice.checked) {
+      const grouped = new Map();
+      for (const row of selectedRows) {
+        const key = [row.sku, row.locationCode, row.offer].join("||");
+        if (!grouped.has(key)) {
+          grouped.set(key, {
+            "sku": row.sku,
+            "Location Code": row.locationCode,
+            "qty": 0,
+            "offer": row.offer
+          });
+        }
+        grouped.get(key).qty += row.qty;
+      }
+      state.invoiceRows = Array.from(grouped.values());
+    } else {
+      state.invoiceRows = selectedRows.map(row => ({
+        "sku": row.sku,
+        "Location Code": row.locationCode,
+        "qty": row.qty,
+        "offer": row.offer
+      }));
+    }
+
+    renderSummary();
+    renderPreview();
+
+    const hasRows = state.selectedRows.length > 0;
+    els.downloadCsvBtn.disabled = !hasRows;
+    els.downloadValidationBtn.disabled = !hasRows;
+  }
+
+  function renderSummary() {
+    const matchedUniqueRef = new Set(state.matchedRows.map(r => r.refKey)).size;
+    const selectedQty = state.selectedRows.reduce((sum, row) => sum + Number(row.qty || 0), 0);
+
+    els.mOrder.textContent = state.orderItems.length;
+    els.mMatchedRef.textContent = matchedUniqueRef;
+    els.mMatchedRows.textContent = state.matchedRows.length;
+    els.mSelectedRows.textContent = state.selectedRows.length;
+    els.mSelectedQty.textContent = selectedQty;
+
+    if (state.unmatchedOrders.length) {
+      const sample = state.unmatchedOrders.slice(0, 25).map(x => `• ${x.ref}`).join("<br>");
+      const more = state.unmatchedOrders.length > 25 ? `<br>...and ${state.unmatchedOrders.length - 25} more` : "";
+      els.unmatchedBox.innerHTML = `<b>Unmatched order Ref.no:</b><br>${sample}${more}`;
+      els.unmatchedBox.style.display = "block";
+    } else {
+      els.unmatchedBox.style.display = "none";
+    }
+  }
+
+  function renderPreview() {
+    const rows = state.validationRows.slice(0, 100);
+    if (!rows.length) {
+      els.previewWrap.style.display = "none";
+      els.previewCount.style.display = "none";
+      return;
+    }
+
+    const columns = ["Ref.no", "sku", "model grade", "Capacity", "Colour", "Network", "Variant", "Location Code", "qty", "offer"];
+    let html = "<table><thead><tr>" + columns.map(c => `<th>${safeText(c)}</th>`).join("") + "</tr></thead><tbody>";
+    for (const row of rows) {
+      html += "<tr>" + columns.map(c => `<td>${safeText(row[c])}</td>`).join("") + "</tr>";
+    }
+    html += "</tbody></table>";
+
+    els.previewWrap.innerHTML = html;
+    els.previewWrap.style.display = "block";
+    els.previewCount.textContent = `${rows.length} shown / ${state.validationRows.length} rows`;
+    els.previewCount.style.display = "inline-block";
+  }
+
+  function refreshLog() {
+    const lines = [];
+    lines.push(`Order Ref.no loaded: ${state.orderItems.length}`);
+    lines.push(`Product mapping rows loaded: ${state.productLookup.size}`);
+    lines.push(`Eligible stock rows after category/region/qty filters: ${state.stockRows.length}`);
+    lines.push(`Matched stock rows: ${state.matchedRows.length}`);
+    lines.push(`Unmatched order Ref.no: ${state.unmatchedOrders.length}`);
+    if (state.warnings.length) {
+      lines.push("");
+      lines.push("Warnings:");
+      for (const w of state.warnings.slice(0, 60)) lines.push(`- ${w}`);
+      if (state.warnings.length > 60) lines.push(`...and ${state.warnings.length - 60} more warnings`);
+    }
+    log(lines);
+  }
+
+  function csvEscape(value) {
+    const s = String(value == null ? "" : value);
+    if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+    return s;
+  }
+
+  function toCsv(rows, columns) {
+    const header = columns.map(csvEscape).join(",");
+    const body = rows.map(row => columns.map(col => csvEscape(row[col])).join(",")).join("\n");
+    return header + "\n" + body;
+  }
+
+  function timestamp() {
+    const d = new Date();
+    const pad = n => String(n).padStart(2, "0");
+    return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}`;
+  }
+
+  function downloadBlob(content, filename, mimeType) {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  function downloadInvoiceCsv() {
+    if (!state.invoiceRows.length) return;
+    const columns = ["sku", "Location Code", "qty", "offer"];
+    const csv = toCsv(state.invoiceRows, columns);
+    downloadBlob(csv, `invoice_upload_${timestamp()}.csv`, "text/csv;charset=utf-8;");
+  }
+
+  function downloadValidationExcel() {
+    if (!state.validationRows.length) return;
+
+    const wb = XLSX.utils.book_new();
+    const validationWs = XLSX.utils.json_to_sheet(state.validationRows, {
+      header: ["Ref.no", "sku", "model grade", "Capacity", "Colour", "Network", "Variant", "Location Code", "qty", "offer"]
+    });
+    XLSX.utils.book_append_sheet(wb, validationWs, "Order Validation");
+
+    const invoiceWs = XLSX.utils.json_to_sheet(state.invoiceRows, {
+      header: ["sku", "Location Code", "qty", "offer"]
+    });
+    XLSX.utils.book_append_sheet(wb, invoiceWs, "Invoice CSV Preview");
+
+    if (state.unmatchedOrders.length) {
+      const unmatchedWs = XLSX.utils.json_to_sheet(state.unmatchedOrders.map(x => ({ "Ref.no": x.ref, "Offer": x.offer })));
+      XLSX.utils.book_append_sheet(wb, unmatchedWs, "Unmatched Orders");
+    }
+
+    XLSX.writeFile(wb, `order_validation_${timestamp()}.xlsx`);
+  }
+
+  function resetState() {
+    state.orderItems = [];
+    state.orderMap = new Map();
+    state.stockRows = [];
+    state.productLookup = new Map();
+    state.matchedRows = [];
+    state.selectedRows = [];
+    state.invoiceRows = [];
+    state.validationRows = [];
+    state.unmatchedOrders = [];
+    state.warnings = [];
+    els.keyboardList.innerHTML = "";
+    els.keyboardCount.style.display = "none";
+    els.selectAllKeyboard.disabled = true;
+    els.clearAllKeyboard.disabled = true;
+    els.proceedBtn.disabled = true;
+    els.downloadCsvBtn.disabled = true;
+    els.downloadValidationBtn.disabled = true;
+    els.previewWrap.style.display = "none";
+    els.previewCount.style.display = "none";
+    els.unmatchedBox.style.display = "none";
+    renderSummary();
+    log("Waiting for files...");
+  }
+
+  async function loadAndMatch() {
+    resetState();
+    els.loadBtn.disabled = true;
+    log("Loading files and rebuilding Ref.no...");
+
+    try {
+      await parseOrderInput();
+      appendLog(`Order rows loaded: ${state.orderItems.length}`);
+
+      await parseProductFile();
+      appendLog(`Product mapping rows loaded: ${state.productLookup.size}`);
+
+      await parseStockFile();
+      appendLog(`Eligible stock rows loaded: ${state.stockRows.length}`);
+
+      matchOrderToStock();
+      renderKeyboardFilters();
+      renderSummary();
+      refreshLog();
+
+      if (!state.matchedRows.length) {
+        els.proceedBtn.disabled = true;
+        appendLog("\nNo matching stock rows found. Check if order Ref.no uses the same APAC Mac output logic/file version.");
+      }
+    } catch (err) {
+      log(`ERROR: ${err.message || err}`);
+    } finally {
+      els.loadBtn.disabled = false;
+    }
+  }
+
+  els.loadBtn.addEventListener("click", loadAndMatch);
+  els.resetBtn.addEventListener("click", () => {
+    els.orderFile.value = "";
+    els.orderPaste.value = "";
+    els.stockFile.value = "";
+    els.productFile.value = "";
+    resetState();
+  });
+
+  els.selectAllKeyboard.addEventListener("click", () => {
+    document.querySelectorAll(".keyboardCheck").forEach(cb => cb.checked = true);
+  });
+
+  els.clearAllKeyboard.addEventListener("click", () => {
+    document.querySelectorAll(".keyboardCheck").forEach(cb => cb.checked = false);
+  });
+
+  els.proceedBtn.addEventListener("click", () => {
+    buildOutputsAfterKeyboardFilter();
+    refreshLog();
+    appendLog(`Selected rows after keyboard filter: ${state.selectedRows.length}`);
+    appendLog(`Invoice CSV rows: ${state.invoiceRows.length}`);
+  });
+
+  els.aggregateInvoice.addEventListener("change", () => {
+    if (state.selectedRows.length) buildOutputsAfterKeyboardFilter();
+  });
+
+  els.downloadCsvBtn.addEventListener("click", downloadInvoiceCsv);
+  els.downloadValidationBtn.addEventListener("click", downloadValidationExcel);
+
+  resetState();
+})();
+</script>
+</body>
+</html>
