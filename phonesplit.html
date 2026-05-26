@@ -369,7 +369,13 @@
         // - Older models (e.g., XS / SE2) are treated as P Sim even if US-spec.
         function getIphoneNumberFromModel(modelStr){
             const s = (modelStr || '').toString();
-            const m = s.match(/\biPhone\s*(\d{2})\b/i);
+
+            // Supports:
+            // - iPhone 14 / iPhone14
+            // - iPhone 16 Pro / iPhone16 Pro
+            // - iPhone 16e / iPhone16e / iPhone 16 e
+            const m = s.match(/\biPhone\s*(\d{2})\s*(?:e)?\b/i);
+
             if(!m) return null;
             const n = parseInt(m[1], 10);
             return Number.isFinite(n) ? n : null;
