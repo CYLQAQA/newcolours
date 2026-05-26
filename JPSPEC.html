@@ -1,0 +1,514 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Loan + Stocklist Qty Updater - Format Safe</title>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <style>
+    :root {
+      --bg:#f6f7fb; --card:#ffffff; --text:#111827; --muted:#6b7280; --line:#e5e7eb;
+      --brand:#2563eb; --brand2:#1d4ed8; --bad:#b91c1c; --good:#047857; --warn:#92400e;
+    }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family: Arial, Helvetica, sans-serif; background:var(--bg); color:var(--text); }
+    .wrap { max-width:980px; margin:22px auto; padding:0 14px 30px; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:14px; box-shadow:0 8px 24px rgba(15,23,42,.06); padding:18px; margin-bottom:14px; }
+    h1 { font-size:22px; margin:0 0 6px; }
+    h2 { font-size:16px; margin:0 0 12px; }
+    p { margin:7px 0; color:var(--muted); line-height:1.45; }
+    .grid { display:grid; grid-template-columns: 180px 1fr; gap:10px 14px; align-items:center; }
+    label { font-weight:700; font-size:13px; }
+    input[type=file] { width:100%; border:1px solid var(--line); border-radius:10px; padding:10px; background:#fafafa; }
+    input[type=text] { width:100%; border:1px solid var(--line); border-radius:10px; padding:10px; }
+    button { border:0; border-radius:11px; padding:12px 16px; background:var(--brand); color:white; font-weight:700; cursor:pointer; }
+    button:hover:not(:disabled) { background:var(--brand2); }
+    button:disabled { background:#9ca3af; cursor:not-allowed; }
+    .actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; }
+    .small { font-size:12px; }
+    .pill { display:inline-block; padding:3px 8px; border-radius:999px; background:#eef2ff; color:#3730a3; margin:2px 4px 2px 0; font-size:12px; }
+    .notice { background:#fffbeb; border:1px solid #fde68a; color:var(--warn); border-radius:12px; padding:10px 12px; font-size:13px; }
+    pre { white-space:pre-wrap; background:#0b1020; color:#d1e7ff; border-radius:12px; padding:14px; max-height:340px; overflow:auto; font-size:12px; }
+    table { border-collapse:collapse; width:100%; font-size:13px; margin-top:8px; }
+    th,td { border:1px solid var(--line); padding:6px 8px; text-align:left; }
+    th { background:#f3f4f6; }
+    .bad { color:var(--bad); font-weight:700; }
+    .good { color:var(--good); font-weight:700; }
+    @media (max-width:700px) { .grid { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Loan Balance + Stocklist Qty Updater</h1>
+      <p>Writes total quantity into the processing file column named exactly <b>Company</b>. Total qty = loan balance count + filtered stocklist qty.</p>
+      <p class="small">Stocklist filter: <span class="pill">location_code = HK_TOTEM_B2B / HK_TOTEM_B2B_BOXED</span><span class="pill">Category = Smartphones</span><span class="pill">Grade = W</span><span class="pill">SKU contains JPN</span><span class="pill">qty_available &gt; 0</span></p>
+      <div class="notice">Format-safe version: this does not rebuild the workbook as a new spreadsheet. It patches only the Company cells inside the original .xlsx package, so formatting, formulas, and the original sheet tab name are kept.</div>
+    </div>
+
+    <div class="card">
+      <h2>Files</h2>
+      <div class="grid">
+        <label>Processing .xlsx</label><input id="processingFile" type="file" accept=".xlsx" />
+        <label>Loan balance .xlsx</label><input id="loanFile" type="file" accept=".xlsx" />
+        <label>Stocklist .csv</label><input id="stockFile" type="file" accept=".csv" />
+        <label>Output filename</label><input id="outputName" type="text" placeholder="Auto-filled after selecting processing file" />
+      </div>
+      <div class="actions">
+        <button id="runBtn">Run Update</button>
+        <button id="downloadXlsxBtn" disabled>Download Updated XLSX</button>
+        <button id="downloadReportBtn" disabled>Download Report CSV</button>
+      </div>
+      <p class="small">This HTML uses JSZip from CDN. If your computer has no internet access, use the Python version instead.</p>
+    </div>
+
+    <div class="card">
+      <h2>Result</h2>
+      <pre id="log">Ready.</pre>
+      <div id="reportPreview"></div>
+    </div>
+  </div>
+
+<script>
+const MAIN_NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+const REL_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+const PKG_REL_NS = 'http://schemas.openxmlformats.org/package/2006/relationships';
+const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+let updatedBlob = null;
+let reportCsv = '';
+let outputBaseName = 'processing_loan_stock_updated';
+
+function byId(id) { return document.getElementById(id); }
+function resetLog(msg='Ready.') { byId('log').textContent = msg; }
+function log(msg) { const el = byId('log'); el.textContent += '\n' + msg; el.scrollTop = el.scrollHeight; }
+function normalize(value) { return String(value ?? '').trim().replace(/\s+/g, ' '); }
+function parseNumber(value) { const n = Number(String(value ?? '').replace(/,/g, '').trim()); return Number.isFinite(n) ? n : 0; }
+function displayQty(value) { return Math.abs(value - Math.round(value)) < 1e-9 ? Math.round(value) : Number(value.toFixed(6)); }
+function fileBaseName(file) { return file.name.replace(/\.[^.]+$/, ''); }
+function addToMap(map, key, qty) { map.set(key, (map.get(key) || 0) + qty); }
+function escapeXmlText(text) { return String(text ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function colToNum(col) {
+  let num = 0;
+  for (const ch of col.toUpperCase()) {
+    if (ch >= 'A' && ch <= 'Z') num = num * 26 + (ch.charCodeAt(0) - 64);
+  }
+  return num;
+}
+function numToCol(num) {
+  let result = '';
+  while (num > 0) {
+    const rem = (num - 1) % 26;
+    result = String.fromCharCode(65 + rem) + result;
+    num = Math.floor((num - 1) / 26);
+  }
+  return result;
+}
+function splitCellRef(ref) {
+  const m = String(ref || '').match(/^([A-Z]+)(\d+)$/i);
+  if (!m) throw new Error('Invalid cell reference: ' + ref);
+  return { col: colToNum(m[1]), row: Number(m[2]) };
+}
+function localChildren(el, localName) {
+  return Array.from(el.children || []).filter(ch => ch.localName === localName);
+}
+function firstLocalChild(el, localName) {
+  return localChildren(el, localName)[0] || null;
+}
+function parseXml(text, label) {
+  const doc = new DOMParser().parseFromString(text, 'application/xml');
+  const err = doc.getElementsByTagName('parsererror')[0];
+  if (err) throw new Error('Cannot parse XML: ' + label);
+  return doc;
+}
+function serializeXml(doc) {
+  let text = new XMLSerializer().serializeToString(doc);
+  if (!text.startsWith('<?xml')) text = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' + text;
+  return text;
+}
+async function loadZipFromFile(file) {
+  return await JSZip.loadAsync(await file.arrayBuffer());
+}
+async function readZipText(zip, path) {
+  const item = zip.file(path);
+  if (!item) throw new Error('Missing file inside xlsx: ' + path);
+  return await item.async('string');
+}
+async function loadSharedStrings(zip) {
+  const item = zip.file('xl/sharedStrings.xml');
+  if (!item) return [];
+  const doc = parseXml(await item.async('string'), 'sharedStrings.xml');
+  const values = [];
+  for (const si of Array.from(doc.getElementsByTagNameNS(MAIN_NS, 'si'))) {
+    let text = '';
+    for (const t of Array.from(si.getElementsByTagNameNS(MAIN_NS, 't'))) text += t.textContent || '';
+    values.push(text);
+  }
+  return values;
+}
+async function getSheetPaths(zip) {
+  const workbookDoc = parseXml(await readZipText(zip, 'xl/workbook.xml'), 'workbook.xml');
+  const relsDoc = parseXml(await readZipText(zip, 'xl/_rels/workbook.xml.rels'), 'workbook.xml.rels');
+  const relMap = new Map();
+  for (const rel of Array.from(relsDoc.getElementsByTagNameNS(PKG_REL_NS, 'Relationship'))) {
+    relMap.set(rel.getAttribute('Id'), rel.getAttribute('Target') || '');
+  }
+  const sheets = [];
+  for (const sheet of Array.from(workbookDoc.getElementsByTagNameNS(MAIN_NS, 'sheet'))) {
+    const name = sheet.getAttribute('name') || '';
+    const rid = sheet.getAttributeNS(REL_NS, 'id') || sheet.getAttribute('r:id');
+    let target = relMap.get(rid) || '';
+    if (!target) continue;
+    let path;
+    if (target.startsWith('/')) path = target.slice(1);
+    else if (target.startsWith('xl/')) path = target;
+    else path = 'xl/' + target.replace(/^\.\//, '');
+    sheets.push({ name, path });
+  }
+  if (!sheets.length) throw new Error('No worksheet found in workbook.');
+  return sheets;
+}
+function getCellValue(cell, sharedStrings) {
+  const cellType = cell.getAttribute('t');
+  if (cellType === 'inlineStr') {
+    let text = '';
+    for (const t of Array.from(cell.getElementsByTagNameNS(MAIN_NS, 't'))) text += t.textContent || '';
+    return text;
+  }
+  const v = firstLocalChild(cell, 'v');
+  if (!v) return '';
+  const raw = v.textContent || '';
+  if (cellType === 's') {
+    const idx = Number(raw);
+    return sharedStrings[idx] ?? raw;
+  }
+  return raw;
+}
+async function readSheetValues(zip, forcedSheetName=null) {
+  const sharedStrings = await loadSharedStrings(zip);
+  const sheets = await getSheetPaths(zip);
+  const chosen = forcedSheetName ? sheets.find(s => s.name === forcedSheetName) : sheets[0];
+  if (!chosen) throw new Error('Sheet not found: ' + forcedSheetName);
+  const doc = parseXml(await readZipText(zip, chosen.path), chosen.path);
+  const values = new Map();
+  let maxRow = 0;
+  for (const cell of Array.from(doc.getElementsByTagNameNS(MAIN_NS, 'c'))) {
+    const ref = cell.getAttribute('r');
+    if (!ref) continue;
+    const { row, col } = splitCellRef(ref);
+    maxRow = Math.max(maxRow, row);
+    values.set(row + ',' + col, getCellValue(cell, sharedStrings));
+  }
+  return { values, maxRow, sheets, sheetName: chosen.name, sheetPath: chosen.path, doc };
+}
+function findHeaderRow(values, requiredHeaders, maxRow, scanRows=30) {
+  const required = requiredHeaders.map(normalize);
+  const limit = Math.min(maxRow, scanRows);
+  for (let row = 1; row <= limit; row++) {
+    const headers = new Map();
+    for (const [key, value] of values.entries()) {
+      const [r, c] = key.split(',').map(Number);
+      if (r !== row) continue;
+      const text = normalize(value);
+      if (text && !headers.has(text)) headers.set(text, c);
+    }
+    if (required.every(h => headers.has(h))) return { rowIndex: row, headers };
+  }
+  throw new Error('Could not find header row containing: ' + requiredHeaders.join(', '));
+}
+async function loadLoanQuantities(zip) {
+  const { values, maxRow } = await readSheetValues(zip);
+  const { rowIndex, headers } = findHeaderRow(values, ['Product', 'Sell Grade'], maxRow);
+  const productCol = headers.get('Product');
+  const gradeCol = headers.get('Sell Grade');
+  const qty = new Map();
+  for (let row = rowIndex + 1; row <= maxRow; row++) {
+    const product = normalize(values.get(row + ',' + productCol));
+    const grade = normalize(values.get(row + ',' + gradeCol));
+    if (product && grade) addToMap(qty, `${product}-${grade}`, 1);
+  }
+  return qty;
+}
+function csvParse(text) {
+  const rows = [];
+  let row = [], cur = '', inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i], next = text[i + 1];
+    if (inQuotes) {
+      if (ch === '"' && next === '"') { cur += '"'; i++; }
+      else if (ch === '"') inQuotes = false;
+      else cur += ch;
+    } else {
+      if (ch === '"') inQuotes = true;
+      else if (ch === ',') { row.push(cur); cur = ''; }
+      else if (ch === '\n') { row.push(cur); rows.push(row); row = []; cur = ''; }
+      else if (ch === '\r') { /* ignore */ }
+      else cur += ch;
+    }
+  }
+  row.push(cur);
+  if (row.length > 1 || row[0] !== '') rows.push(row);
+  return rows;
+}
+function rowsToObjects(rows) {
+  if (!rows.length) return [];
+  const headers = rows[0].map(h => normalize(h).replace(/^\uFEFF/, ''));
+  return rows.slice(1).map(r => Object.fromEntries(headers.map((h, i) => [h, r[i] ?? ''])));
+}
+function loadStockQuantities(csvText) {
+  const objects = rowsToObjects(csvParse(csvText));
+  const required = ['location_code', 'Category', 'Grade', 'SKU', 'qty_available', 'Model', 'Capacity'];
+  const headers = objects.length ? Object.keys(objects[0]) : [];
+  const missing = required.filter(col => !headers.includes(col));
+  if (missing.length) throw new Error('Stocklist is missing required columns: ' + missing.join(', '));
+
+  const qty = new Map();
+  const summary = { rowsRead: 0, rowsAfterFilter: 0 };
+  for (const row of objects) {
+    summary.rowsRead++;
+    const loc = normalize(row.location_code);
+    const category = normalize(row.Category);
+    const grade = normalize(row.Grade);
+    const sku = normalize(row.SKU);
+    const available = parseNumber(row.qty_available);
+    if (!['HK_TOTEM_B2B', 'HK_TOTEM_B2B_BOXED'].includes(loc)) continue;
+    if (category !== 'Smartphones') continue;
+    if (grade !== 'W') continue;
+    if (!sku.toUpperCase().includes('JPN')) continue;
+    if (available <= 0) continue;
+    const model = normalize(row.Model);
+    const capacity = normalize(row.Capacity);
+    if (!model || !capacity) continue;
+    addToMap(qty, normalize(`${model} ${capacity}-W`), available);
+    summary.rowsAfterFilter++;
+  }
+  return { qty, summary };
+}
+function findOrCreateRow(doc, rowNum) {
+  let sheetData = doc.getElementsByTagNameNS(MAIN_NS, 'sheetData')[0];
+  if (!sheetData) {
+    sheetData = doc.createElementNS(MAIN_NS, 'sheetData');
+    const worksheet = doc.documentElement;
+    worksheet.appendChild(sheetData);
+  }
+  for (const row of Array.from(sheetData.getElementsByTagNameNS(MAIN_NS, 'row'))) {
+    if (Number(row.getAttribute('r')) === rowNum) return row;
+  }
+  const newRow = doc.createElementNS(MAIN_NS, 'row');
+  newRow.setAttribute('r', String(rowNum));
+  const rows = Array.from(sheetData.children).filter(el => el.localName === 'row');
+  const before = rows.find(row => Number(row.getAttribute('r')) > rowNum);
+  if (before) sheetData.insertBefore(newRow, before);
+  else sheetData.appendChild(newRow);
+  return newRow;
+}
+function findOrCreateCell(doc, rowEl, cellRef, colNum) {
+  for (const cell of Array.from(rowEl.children).filter(el => el.localName === 'c')) {
+    if (cell.getAttribute('r') === cellRef) return cell;
+  }
+  const newCell = doc.createElementNS(MAIN_NS, 'c');
+  newCell.setAttribute('r', cellRef);
+  const cells = Array.from(rowEl.children).filter(el => el.localName === 'c');
+  const before = cells.find(cell => {
+    try { return splitCellRef(cell.getAttribute('r')).col > colNum; }
+    catch { return false; }
+  });
+  if (before) rowEl.insertBefore(newCell, before);
+  else rowEl.appendChild(newCell);
+  return newCell;
+}
+function setCellNumber(doc, cell, value) {
+  const ref = cell.getAttribute('r');
+  const style = cell.getAttribute('s');
+  while (cell.attributes.length) cell.removeAttribute(cell.attributes[0].name);
+  if (ref) cell.setAttribute('r', ref);
+  if (style) cell.setAttribute('s', style);
+  while (cell.firstChild) cell.removeChild(cell.firstChild);
+  const v = doc.createElementNS(MAIN_NS, 'v');
+  v.textContent = String(displayQty(value));
+  cell.appendChild(v);
+}
+function updateCalcSettings(text) {
+  const repl = '<calcPr calcMode="auto" fullCalcOnLoad="1" forceFullCalc="1"/>';
+  if (/<calcPr\b[^>]*\/>/.test(text)) return text.replace(/<calcPr\b[^>]*\/>/, repl);
+  if (/<calcPr\b[^>]*>[\s\S]*?<\/calcPr>/.test(text)) return text.replace(/<calcPr\b[^>]*>[\s\S]*?<\/calcPr>/, repl);
+  return text.replace('</workbook>', repl + '</workbook>');
+}
+async function removeCalcChain(zip) {
+  zip.remove('xl/calcChain.xml');
+  const rels = zip.file('xl/_rels/workbook.xml.rels');
+  if (rels) {
+    let text = await rels.async('string');
+    text = text.replace(/<Relationship\b(?=[^>]*(?:calcChain))[^>]*\/>/g, '');
+    zip.file('xl/_rels/workbook.xml.rels', text);
+  }
+  const ct = zip.file('[Content_Types].xml');
+  if (ct) {
+    let text = await ct.async('string');
+    text = text.replace(/<Override\b(?=[^>]*(?:calcChain))[^>]*\/>/g, '');
+    zip.file('[Content_Types].xml', text);
+  }
+}
+async function updateProcessingWorkbook(zip, loanQty, stockQty, stockSummary) {
+  const sheetInfo = await readSheetValues(zip);
+  const { values, maxRow, sheetName, sheetPath, doc } = sheetInfo;
+  const { rowIndex, headers } = findHeaderRow(values, ['Model Grade', 'Company'], maxRow);
+  const modelCol = headers.get('Model Grade');
+  const companyCol = headers.get('Company');
+  const companyColLetter = numToCol(companyCol);
+
+  const modelToRows = new Map();
+  for (let row = rowIndex + 1; row <= maxRow; row++) {
+    const modelGrade = normalize(values.get(row + ',' + modelCol));
+    if (!modelGrade) continue;
+    if (!modelToRows.has(modelGrade)) modelToRows.set(modelGrade, []);
+    modelToRows.get(modelGrade).push(row);
+  }
+
+  const totalQty = new Map();
+  loanQty.forEach((v, k) => addToMap(totalQty, k, v));
+  stockQty.forEach((v, k) => addToMap(totalQty, k, v));
+
+  const reportRows = [];
+  let matched = 0, unmatched = 0, cellsWritten = 0;
+  for (const modelGrade of Array.from(totalQty.keys()).sort()) {
+    const loan = loanQty.get(modelGrade) || 0;
+    const stock = stockQty.get(modelGrade) || 0;
+    const total = totalQty.get(modelGrade) || 0;
+    const rows = modelToRows.get(modelGrade) || [];
+    if (rows.length) {
+      matched++;
+      for (const rowNum of rows) {
+        const cellRef = `${companyColLetter}${rowNum}`;
+        const rowEl = findOrCreateRow(doc, rowNum);
+        const cell = findOrCreateCell(doc, rowEl, cellRef, companyCol);
+        setCellNumber(doc, cell, total);
+        cellsWritten++;
+      }
+      reportRows.push([modelGrade, displayQty(loan), displayQty(stock), displayQty(total), 'Matched', rows.join(',')]);
+    } else {
+      unmatched++;
+      reportRows.push([modelGrade, displayQty(loan), displayQty(stock), displayQty(total), 'NOT FOUND IN PROCESSING FILE', '']);
+    }
+  }
+
+  zip.file(sheetPath, serializeXml(doc));
+  const workbookText = await readZipText(zip, 'xl/workbook.xml');
+  zip.file('xl/workbook.xml', updateCalcSettings(workbookText));
+  await removeCalcChain(zip);
+
+  const summary = {
+    processingSheet: sheetName,
+    updatedColumn: `${companyColLetter} / Company`,
+    loanUnique: loanQty.size,
+    loanTotal: Array.from(loanQty.values()).reduce((a,b)=>a+b,0),
+    stockRowsRead: stockSummary.rowsRead,
+    stockRowsAfterFilter: stockSummary.rowsAfterFilter,
+    stockUnique: stockQty.size,
+    stockTotal: Array.from(stockQty.values()).reduce((a,b)=>a+b,0),
+    totalUnique: totalQty.size,
+    matched,
+    unmatched,
+    cellsWritten,
+    tabNamePreserved: sheetName
+  };
+  return { reportRows, summary };
+}
+function buildReportCsv(reportRows, summary) {
+  const lines = [];
+  lines.push(['Model Grade', 'Loan Qty', 'Stock Qty', 'Total Qty', 'Status', 'Processing Row']);
+  reportRows.forEach(r => lines.push(r));
+  lines.push([]);
+  lines.push(['Summary']);
+  Object.entries(summary).forEach(([k, v]) => lines.push([k, typeof v === 'number' ? displayQty(v) : v]));
+  return '\uFEFF' + lines.map(row => row.map(cell => {
+    const text = String(cell ?? '');
+    return /[",\n]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
+  }).join(',')).join('\r\n');
+}
+function downloadBlob(content, filename, type) {
+  const blob = content instanceof Blob ? content : new Blob([content], { type });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  URL.revokeObjectURL(a.href);
+  a.remove();
+}
+function renderPreview(reportRows, summary) {
+  const preview = reportRows.filter(r => r[4] !== 'Matched').slice(0, 20);
+  let html = '<p><b>Summary:</b> ' +
+    `Loan ${displayQty(summary.loanTotal)} qty, stock ${displayQty(summary.stockTotal)} qty, matched ${summary.matched}, unmatched ${summary.unmatched}. Updated ${summary.updatedColumn}. Tab kept as: <b>${escapeXmlText(summary.processingSheet)}</b>.` + '</p>';
+  if (preview.length) {
+    html += '<p class="bad">Unmatched Model Grade found:</p><table><thead><tr><th>Model Grade</th><th>Loan Qty</th><th>Stock Qty</th><th>Total Qty</th></tr></thead><tbody>';
+    preview.forEach(r => html += `<tr><td>${escapeXmlText(r[0])}</td><td>${r[1]}</td><td>${r[2]}</td><td>${r[3]}</td></tr>`);
+    html += '</tbody></table>';
+  } else {
+    html += '<p class="good">No unmatched Model Grade.</p>';
+  }
+  byId('reportPreview').innerHTML = html;
+}
+byId('processingFile').addEventListener('change', () => {
+  const file = byId('processingFile').files[0];
+  if (file && !byId('outputName').value.trim()) byId('outputName').value = fileBaseName(file) + '_loan_stock_updated.xlsx';
+});
+byId('runBtn').addEventListener('click', async () => {
+  resetLog('Running...');
+  byId('downloadXlsxBtn').disabled = true;
+  byId('downloadReportBtn').disabled = true;
+  byId('reportPreview').innerHTML = '';
+  updatedBlob = null;
+  reportCsv = '';
+  try {
+    if (typeof JSZip === 'undefined') throw new Error('JSZip did not load. Check internet connection or use the Python version.');
+    const processingFile = byId('processingFile').files[0];
+    const loanFile = byId('loanFile').files[0];
+    const stockFile = byId('stockFile').files[0];
+    if (!processingFile || !loanFile || !stockFile) throw new Error('Please select all three files.');
+    outputBaseName = normalize(byId('outputName').value).replace(/\.xlsx$/i, '') || (fileBaseName(processingFile) + '_loan_stock_updated');
+
+    log('Loading files...');
+    const processingZip = await loadZipFromFile(processingFile);
+    const loanZip = await loadZipFromFile(loanFile);
+    const stockText = await stockFile.text();
+
+    log('Reading loan balance and stocklist...');
+    const loanQty = await loadLoanQuantities(loanZip);
+    const { qty: stockQty, summary: stockSummary } = loadStockQuantities(stockText);
+
+    log('Patching processing workbook XML without rebuilding styles/formulas...');
+    const { reportRows, summary } = await updateProcessingWorkbook(processingZip, loanQty, stockQty, stockSummary);
+    updatedBlob = await processingZip.generateAsync({ type:'blob', mimeType:XLSX_MIME, compression:'DEFLATE' });
+    reportCsv = buildReportCsv(reportRows, summary);
+
+    log(`Processing sheet/tab preserved: ${summary.processingSheet}`);
+    log(`Updated column: ${summary.updatedColumn}`);
+    log(`Loan unique / total: ${summary.loanUnique} / ${displayQty(summary.loanTotal)}`);
+    log(`Stock rows after filter: ${summary.stockRowsAfterFilter}`);
+    log(`Stock unique / total: ${summary.stockUnique} / ${displayQty(summary.stockTotal)}`);
+    log(`Total unique Model Grade: ${summary.totalUnique}`);
+    log(`Matched: ${summary.matched}`);
+    log(`Unmatched: ${summary.unmatched}`);
+    log(`Cells written: ${summary.cellsWritten}`);
+    log('Done. Download the updated XLSX and CSV report.');
+
+    renderPreview(reportRows, summary);
+    byId('downloadXlsxBtn').disabled = false;
+    byId('downloadReportBtn').disabled = false;
+  } catch (err) {
+    log('ERROR: ' + (err && err.message ? err.message : err));
+  }
+});
+byId('downloadXlsxBtn').addEventListener('click', () => {
+  if (!updatedBlob) return;
+  downloadBlob(updatedBlob, outputBaseName + '.xlsx', XLSX_MIME);
+});
+byId('downloadReportBtn').addEventListener('click', () => {
+  if (!reportCsv) return;
+  downloadBlob(reportCsv, outputBaseName + '_update_report.csv', 'text/csv;charset=utf-8');
+});
+</script>
+</body>
+</html>
