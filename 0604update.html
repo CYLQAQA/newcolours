@@ -177,6 +177,8 @@
         <button id="btnExportView" disabled="">Export Excel (Filtered View)</button>
         <button id="btnExportXlsxExtra" disabled="">Export Excel (All Countries + Extra)</button>
         <button id="btnExportViewExtra" disabled="">Export Excel (Filtered View + Extra)</button>
+        <button id="btnExportRegionMg" disabled="">Export Region+MG</button>
+        <button id="btnExportRegionMgExtra" disabled="">Export Region+MG + Extra</button>
         <button id="btnExportSimSummary" disabled="">Export SIM Summary (ALL/ESIM/PSIM)</button>
         <button id="btnExportFilteredWarehouseSimSummary" disabled="">Export Filtered SIM Warehouse Summary</button>
         <button id="btnExportFilteredRegionSimSummary" disabled="">Export Filtered SIM Region Summary</button>
@@ -234,6 +236,7 @@
 <!-- Libs -->
 <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 
 <!-- Autoload CSV script: fetches a dataset CSV and feeds it into the
@@ -1007,11 +1010,15 @@ DE_SUPPORT_MVAT_B2B\tDE`;
         status(`Loaded snapshot: ${DATA.meta?.name||'dataset'} (rows: ${fmtInt(DATA.rows.length)})`);
         $('#btnExportXlsx').disabled=false;
         $('#btnExportView').disabled=false;
+        const btnRegionMg = document.getElementById('btnExportRegionMg');
+        if(btnRegionMg) btnRegionMg.disabled=false;
         const extraEnabled = hasExtraColumns();
         const btnExtraAll = document.getElementById('btnExportXlsxExtra');
         const btnExtraView = document.getElementById('btnExportViewExtra');
         if(btnExtraAll) btnExtraAll.disabled = !extraEnabled;
         if(btnExtraView) btnExtraView.disabled = !extraEnabled;
+        const btnRegionMgExtra = document.getElementById('btnExportRegionMgExtra');
+        if(btnRegionMgExtra) btnRegionMgExtra.disabled = !extraEnabled;
         $('#btnExportSimSummary').disabled=false;
         const btnFilteredWhSimSummary = document.getElementById('btnExportFilteredWarehouseSimSummary');
         if(btnFilteredWhSimSummary) btnFilteredWhSimSummary.disabled=false;
@@ -1034,7 +1041,75 @@ DE_SUPPORT_MVAT_B2B\tDE`;
   })();
 
   // Read file (CSV/XLSX)
-  async function parseFile(file){ const name=String(file?.name||'').toLowerCase(); if(name.endsWith('.csv') || String(file?.type||'').toLowerCase().includes('csv')){ return file.text().then(text=>{ const wb=XLSX.read(text,{type:'string', raw:false}); const ws=wb.Sheets[wb.SheetNames[0]]; return XLSX.utils.sheet_to_json(ws,{defval:'',raw:false}); }); } return file.arrayBuffer().then(buf=>{ const wb=XLSX.read(buf,{type:'array'}); const ws=wb.Sheets[wb.SheetNames[0]]; return XLSX.utils.sheet_to_json(ws,{defval:'',raw:false}); }); }
+  // CSV path intentionally uses PapaParse first, then category-prefilters the raw rows
+  // before Mobile Stock aggregation. This avoids SheetJS CSV row-count quirks and keeps
+  // only the stock categories the tool supports: Smartphones, Tablets, Wearables.
+  let LAST_CATEGORY_PREFILTER_INFO = null;
+
+  function isCsvFile(file){
+    const name = String(file?.name || '').toLowerCase();
+    const type = String(file?.type || '').toLowerCase();
+    return name.endsWith('.csv') || type.includes('csv');
+  }
+
+  function isAllowedStockCategoryForImport(value){
+    const c = String(value == null ? '' : value).trim().toLowerCase();
+    return c === 'smartphones' || c === 'tablets' || c === 'wearables';
+  }
+
+  function findCategoryColumnForImport(cols){
+    return pickCol(cols || [], ['Category','Product Category','Item Category']);
+  }
+
+  function parseCsvWithPapa(file){
+    return new Promise((resolve, reject) => {
+      if(typeof Papa === 'undefined'){
+        reject(new Error('PapaParse library is not loaded. Please check the PapaParse CDN link in the HTML.'));
+        return;
+      }
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: 'greedy',
+        dynamicTyping: false,
+        worker: false,
+        transformHeader: h => String(h == null ? '' : h).trim(),
+        complete: results => {
+          try{
+            const rows = (results && results.data) ? results.data : [];
+            const fields = (results && results.meta && results.meta.fields) ? results.meta.fields : Object.keys(rows[0] || {});
+            const categoryCol = findCategoryColumnForImport(fields);
+            if(!categoryCol){
+              throw new Error('Category column not found in CSV. Required column: Category.');
+            }
+            const filteredRows = rows.filter(r => isAllowedStockCategoryForImport(r[categoryCol]));
+            LAST_CATEGORY_PREFILTER_INFO = {
+              method: 'PapaParse CSV category prefilter',
+              sourceFile: file && file.name ? file.name : '',
+              categoryColumn: categoryCol,
+              originalRows: rows.length,
+              keptRows: filteredRows.length,
+              removedRows: Math.max(0, rows.length - filteredRows.length)
+            };
+            resolve(filteredRows);
+          }catch(err){
+            reject(err);
+          }
+        },
+        error: err => reject(err)
+      });
+    });
+  }
+
+  async function parseFile(file){
+    LAST_CATEGORY_PREFILTER_INFO = null;
+    if(isCsvFile(file)){
+      return parseCsvWithPapa(file);
+    }
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf,{type:'array'});
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    return XLSX.utils.sheet_to_json(ws,{defval:'',raw:false});
+  }
 
   function deriveCountryFromMapping(row, colCountry, colLocation){
     let c = (colCountry? String(row[colCountry]||'').trim() : '');
@@ -1937,98 +2012,9 @@ DE_SUPPORT_MVAT_B2B\tDE`;
 
     const borderThin = {top:{style:'thin'}, left:{style:'thin'}, bottom:{style:'thin'}, right:{style:'thin'}};
 
-    // Filtered View export update:
-    // Instead of creating one tab per region, combine all regions into one sheet.
-    // Adds Region and Region+Model Grade columns. Region+Model Grade = Region + Item/Model Grade, no space.
-    if(filteredOnly){
-      const ws = workbook.addWorksheet('Filtered View', {views:[{state:'frozen', ySplit:1}]});
-      const cols = [
-        {header:'Region', key:'region', width:12},
-        {header:'Region+Model Grade', key:'regionModelGrade', width:70},
-        {header:'Item', key:'item', width:60},
-        {header:'Qty', key:'qty', width:12}
-      ];
-      if(showFloor) cols.push({header:'Floor Price', key:'floor', width:14});
-      if(showLastAsp) cols.push({header:'LastASP_USD', key:'lastasp', width:14});
-      ws.columns = cols;
-      ws.getRow(1).font = {bold:true};
-      ws.getRow(1).alignment = {vertical:'middle'};
-      for(let cc=1; cc<=cols.length; cc++) ws.getCell(1,cc).border = borderThin;
+    // Original Filtered View export remains region-by-tab.
 
-      let grand = 0;
-      let r = 2;
-      for(const country of countries){
-        const models = [...byCountry.get(country).keys()].sort();
-        let regionTotal = 0;
-        for(const hdr of models){
-          const item = byCountry.get(country).get(hdr);
-          const subtotal = item.qty || 0;
-          const regionModelGrade = String(country || '') + String(hdr || '');
-          grand += subtotal;
-          regionTotal += subtotal;
-
-          let c = 1;
-          ws.getCell(r,c).value = country; ws.getCell(r,c).border = borderThin; c++;
-          ws.getCell(r,c).value = regionModelGrade; ws.getCell(r,c).font = {bold:true}; ws.getCell(r,c).border = borderThin; c++;
-          ws.getCell(r,c).value = hdr; ws.getCell(r,c).font = {bold:true}; ws.getCell(r,c).border = borderThin; c++;
-          ws.getCell(r,c).value = subtotal; ws.getCell(r,c).numFmt = '#,##0'; ws.getCell(r,c).alignment = {horizontal:'right'}; ws.getCell(r,c).border = borderThin; c++;
-          if(showFloor){
-            const floorVal = Number(String(item.floorPrice).replace(/,/g,''));
-            ws.getCell(r,c).value = item.floorPrice === '' ? '' : (isFinite(floorVal) ? floorVal : item.floorPrice);
-            if(ws.getCell(r,c).value !== '') ws.getCell(r,c).numFmt = '#,##0.00';
-            ws.getCell(r,c).alignment = {horizontal:'right'}; ws.getCell(r,c).border = borderThin; c++;
-          }
-          if(showLastAsp){
-            const lastVal = Number(String(item.lastAsp).replace(/,/g,''));
-            ws.getCell(r,c).value = item.lastAsp === '' ? '' : (isFinite(lastVal) ? lastVal : item.lastAsp);
-            if(ws.getCell(r,c).value !== '') ws.getCell(r,c).numFmt = '#,##0.00';
-            ws.getCell(r,c).alignment = {horizontal:'right'}; ws.getCell(r,c).border = borderThin; c++;
-          }
-          r++;
-
-          if(!SHOW_SUMMARY_ONLY){
-            const sortedColors = [...item.colors.entries()].sort((a,b)=> a[0].localeCompare(b[0]));
-            for(const [color,qty] of sortedColors){
-              let cc = 1;
-              ws.getCell(r,cc).value = country; ws.getCell(r,cc).border = borderThin; cc++;
-              ws.getCell(r,cc).value = regionModelGrade; ws.getCell(r,cc).border = borderThin; cc++;
-              ws.getCell(r,cc).value = color; ws.getCell(r,cc).alignment = {indent:2}; ws.getCell(r,cc).border = borderThin; cc++;
-              ws.getCell(r,cc).value = qty; ws.getCell(r,cc).numFmt = '#,##0'; ws.getCell(r,cc).alignment = {horizontal:'right'}; ws.getCell(r,cc).border = borderThin; cc++;
-              if(showFloor){ ws.getCell(r,cc).value = ''; ws.getCell(r,cc).border = borderThin; cc++; }
-              if(showLastAsp){ ws.getCell(r,cc).value = ''; ws.getCell(r,cc).border = borderThin; cc++; }
-              r++;
-            }
-          }
-        }
-
-        // Region subtotal makes the one-sheet export easier to audit.
-        let tc = 1;
-        ws.getCell(r,tc).value = country; ws.getCell(r,tc).font = {bold:true}; ws.getCell(r,tc).border = borderThin; tc++;
-        ws.getCell(r,tc).value = ''; ws.getCell(r,tc).border = borderThin; tc++;
-        ws.getCell(r,tc).value = country + ' Total'; ws.getCell(r,tc).font = {bold:true}; ws.getCell(r,tc).border = borderThin; tc++;
-        ws.getCell(r,tc).value = regionTotal; ws.getCell(r,tc).font = {bold:true}; ws.getCell(r,tc).numFmt = '#,##0'; ws.getCell(r,tc).alignment = {horizontal:'right'}; ws.getCell(r,tc).border = borderThin; tc++;
-        if(showFloor){ ws.getCell(r,tc).value = ''; ws.getCell(r,tc).border = borderThin; tc++; }
-        if(showLastAsp){ ws.getCell(r,tc).value = ''; ws.getCell(r,tc).border = borderThin; tc++; }
-        r++;
-      }
-
-      let totalCol = 1;
-      ws.getCell(r,totalCol).value = ''; ws.getCell(r,totalCol).border = borderThin; totalCol++;
-      ws.getCell(r,totalCol).value = ''; ws.getCell(r,totalCol).border = borderThin; totalCol++;
-      ws.getCell(r,totalCol).value = 'Grand Total'; ws.getCell(r,totalCol).font={bold:true}; ws.getCell(r,totalCol).border = borderThin; totalCol++;
-      ws.getCell(r,totalCol).value = grand; ws.getCell(r,totalCol).font={bold:true}; ws.getCell(r,totalCol).numFmt = '#,##0'; ws.getCell(r,totalCol).alignment = {horizontal:'right'}; ws.getCell(r,totalCol).border = borderThin; totalCol++;
-      if(showFloor){ ws.getCell(r,totalCol).value = ''; ws.getCell(r,totalCol).border = borderThin; totalCol++; }
-      if(showLastAsp){ ws.getCell(r,totalCol).value = ''; ws.getCell(r,totalCol).border = borderThin; totalCol++; }
-
-      const buf = await workbook.xlsx.writeBuffer();
-      const now=new Date();
-      const ts = String(now.getFullYear()) + String(now.getMonth()+1).padStart(2,'0') + String(now.getDate()).padStart(2,'0') + String(now.getHours()).padStart(2,'0');
-      const fname = includeExtras ? `${ts}_ColourReport_Filtered_View_With_Extra.xlsx` : `${ts}_ColourReport_Filtered_View.xlsx`;
-      saveAs(new Blob([buf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}), fname);
-      return;
-    }
-
-    for(const country of countries){
+for(const country of countries){
       const ws = workbook.addWorksheet(String(country).slice(0,31), {views:[{state:'frozen', ySplit:1}]});
       const cols = [{header:'Item', key:'item', width:60}, {header:'Qty', key:'qty', width:12}];
       if(showFloor) cols.push({header:'Floor Price', key:'floor', width:14});
@@ -2339,6 +2325,133 @@ DE_SUPPORT_MVAT_B2B\tDE`;
     saveAs(new Blob([buf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}), fname);
   }
 
+
+  // ===== Region+MG one-sheet filtered export =====
+  // Keeps the original Filtered View export as region-by-tab.
+  // This separate export combines filtered rows into one sheet with Region and Region+Model Grade columns.
+  async function exportRegionMgExcel(includeExtras=false){
+    const rows = applyFilters(DATA.rows);
+    const showFloor = includeExtras && hasFloorPriceData();
+    const showLastAsp = includeExtras && hasLastAspData();
+
+    const byCountry=new Map();
+    for(const r of rows){
+      if(!byCountry.has(r.Country)) byCountry.set(r.Country,new Map());
+      const countryMap = byCountry.get(r.Country);
+      if(!countryMap.has(r.Header)){
+        countryMap.set(r.Header, {
+          qty: 0,
+          floorPrice: getFloorPriceForRow(r),
+          lastAsp: getLastAspForRow(r),
+          colors: new Map()
+        });
+      }
+      const item = countryMap.get(r.Header);
+      item.qty += r.Qty;
+      if((item.floorPrice === '' || item.floorPrice == null)){
+        const fp = getFloorPriceForRow(r);
+        if(fp !== '' && fp != null) item.floorPrice = fp;
+      }
+      if((item.lastAsp === '' || item.lastAsp == null)){
+        const la = getLastAspForRow(r);
+        if(la !== '' && la != null) item.lastAsp = la;
+      }
+      item.colors.set(r.Color, (item.colors.get(r.Color) || 0) + r.Qty);
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    const countries = [...byCountry.keys()].sort();
+    if(countries.length===0){ alert('Nothing to export.'); return; }
+    const borderThin = {top:{style:'thin'}, left:{style:'thin'}, bottom:{style:'thin'}, right:{style:'thin'}};
+
+      const ws = workbook.addWorksheet('Region+MG', {views:[{state:'frozen', ySplit:1}]});
+      const cols = [
+        {header:'Region', key:'region', width:12},
+        {header:'Region+Model Grade', key:'regionModelGrade', width:70},
+        {header:'Item', key:'item', width:60},
+        {header:'Qty', key:'qty', width:12}
+      ];
+      if(showFloor) cols.push({header:'Floor Price', key:'floor', width:14});
+      if(showLastAsp) cols.push({header:'LastASP_USD', key:'lastasp', width:14});
+      ws.columns = cols;
+      ws.getRow(1).font = {bold:true};
+      ws.getRow(1).alignment = {vertical:'middle'};
+      for(let cc=1; cc<=cols.length; cc++) ws.getCell(1,cc).border = borderThin;
+
+      let grand = 0;
+      let r = 2;
+      for(const country of countries){
+        const models = [...byCountry.get(country).keys()].sort();
+        let regionTotal = 0;
+        for(const hdr of models){
+          const item = byCountry.get(country).get(hdr);
+          const subtotal = item.qty || 0;
+          const regionModelGrade = String(country || '') + String(hdr || '');
+          grand += subtotal;
+          regionTotal += subtotal;
+
+          let c = 1;
+          ws.getCell(r,c).value = country; ws.getCell(r,c).border = borderThin; c++;
+          ws.getCell(r,c).value = regionModelGrade; ws.getCell(r,c).font = {bold:true}; ws.getCell(r,c).border = borderThin; c++;
+          ws.getCell(r,c).value = hdr; ws.getCell(r,c).font = {bold:true}; ws.getCell(r,c).border = borderThin; c++;
+          ws.getCell(r,c).value = subtotal; ws.getCell(r,c).numFmt = '#,##0'; ws.getCell(r,c).alignment = {horizontal:'right'}; ws.getCell(r,c).border = borderThin; c++;
+          if(showFloor){
+            const floorVal = Number(String(item.floorPrice).replace(/,/g,''));
+            ws.getCell(r,c).value = item.floorPrice === '' ? '' : (isFinite(floorVal) ? floorVal : item.floorPrice);
+            if(ws.getCell(r,c).value !== '') ws.getCell(r,c).numFmt = '#,##0.00';
+            ws.getCell(r,c).alignment = {horizontal:'right'}; ws.getCell(r,c).border = borderThin; c++;
+          }
+          if(showLastAsp){
+            const lastVal = Number(String(item.lastAsp).replace(/,/g,''));
+            ws.getCell(r,c).value = item.lastAsp === '' ? '' : (isFinite(lastVal) ? lastVal : item.lastAsp);
+            if(ws.getCell(r,c).value !== '') ws.getCell(r,c).numFmt = '#,##0.00';
+            ws.getCell(r,c).alignment = {horizontal:'right'}; ws.getCell(r,c).border = borderThin; c++;
+          }
+          r++;
+
+          if(!SHOW_SUMMARY_ONLY){
+            const sortedColors = [...item.colors.entries()].sort((a,b)=> a[0].localeCompare(b[0]));
+            for(const [color,qty] of sortedColors){
+              let cc = 1;
+              ws.getCell(r,cc).value = country; ws.getCell(r,cc).border = borderThin; cc++;
+              ws.getCell(r,cc).value = regionModelGrade; ws.getCell(r,cc).border = borderThin; cc++;
+              ws.getCell(r,cc).value = color; ws.getCell(r,cc).alignment = {indent:2}; ws.getCell(r,cc).border = borderThin; cc++;
+              ws.getCell(r,cc).value = qty; ws.getCell(r,cc).numFmt = '#,##0'; ws.getCell(r,cc).alignment = {horizontal:'right'}; ws.getCell(r,cc).border = borderThin; cc++;
+              if(showFloor){ ws.getCell(r,cc).value = ''; ws.getCell(r,cc).border = borderThin; cc++; }
+              if(showLastAsp){ ws.getCell(r,cc).value = ''; ws.getCell(r,cc).border = borderThin; cc++; }
+              r++;
+            }
+          }
+        }
+
+        // Region subtotal makes the one-sheet export easier to audit.
+        let tc = 1;
+        ws.getCell(r,tc).value = country; ws.getCell(r,tc).font = {bold:true}; ws.getCell(r,tc).border = borderThin; tc++;
+        ws.getCell(r,tc).value = ''; ws.getCell(r,tc).border = borderThin; tc++;
+        ws.getCell(r,tc).value = country + ' Total'; ws.getCell(r,tc).font = {bold:true}; ws.getCell(r,tc).border = borderThin; tc++;
+        ws.getCell(r,tc).value = regionTotal; ws.getCell(r,tc).font = {bold:true}; ws.getCell(r,tc).numFmt = '#,##0'; ws.getCell(r,tc).alignment = {horizontal:'right'}; ws.getCell(r,tc).border = borderThin; tc++;
+        if(showFloor){ ws.getCell(r,tc).value = ''; ws.getCell(r,tc).border = borderThin; tc++; }
+        if(showLastAsp){ ws.getCell(r,tc).value = ''; ws.getCell(r,tc).border = borderThin; tc++; }
+        r++;
+      }
+
+      let totalCol = 1;
+      ws.getCell(r,totalCol).value = ''; ws.getCell(r,totalCol).border = borderThin; totalCol++;
+      ws.getCell(r,totalCol).value = ''; ws.getCell(r,totalCol).border = borderThin; totalCol++;
+      ws.getCell(r,totalCol).value = 'Grand Total'; ws.getCell(r,totalCol).font={bold:true}; ws.getCell(r,totalCol).border = borderThin; totalCol++;
+      ws.getCell(r,totalCol).value = grand; ws.getCell(r,totalCol).font={bold:true}; ws.getCell(r,totalCol).numFmt = '#,##0'; ws.getCell(r,totalCol).alignment = {horizontal:'right'}; ws.getCell(r,totalCol).border = borderThin; totalCol++;
+      if(showFloor){ ws.getCell(r,totalCol).value = ''; ws.getCell(r,totalCol).border = borderThin; totalCol++; }
+      if(showLastAsp){ ws.getCell(r,totalCol).value = ''; ws.getCell(r,totalCol).border = borderThin; totalCol++; }
+
+      const buf = await workbook.xlsx.writeBuffer();
+      const now=new Date();
+      const ts = String(now.getFullYear()) + String(now.getMonth()+1).padStart(2,'0') + String(now.getDate()).padStart(2,'0') + String(now.getHours()).padStart(2,'0');
+      const fname = includeExtras ? `${ts}_ColourReport_Region+MG_With_Extra.xlsx` : `${ts}_ColourReport_Region+MG.xlsx`;
+      saveAs(new Blob([buf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}), fname);
+      return;
+    
+  }
+
   // ===== Filtered SIM Region Summary export (PSIM / ESIM tabs) =====
   // Uses the current filtered view, then pivots by region/country:
   // Model | Region A Qty | Region B Qty | ...
@@ -2485,6 +2598,11 @@ DE_SUPPORT_MVAT_B2B\tDE`;
       if(file){
         const json=await parseFile(file);
         processRaw(json);
+        if(LAST_CATEGORY_PREFILTER_INFO){
+          DATA.meta.sourceRowCount = LAST_CATEGORY_PREFILTER_INFO.originalRows;
+          DATA.meta.keptRowCount = LAST_CATEGORY_PREFILTER_INFO.keptRows;
+          DATA.meta.csvCategoryPrefilter = LAST_CATEGORY_PREFILTER_INFO;
+        }
       }
       ensureEnrichmentStore();
       if(floorFile){
@@ -2519,6 +2637,10 @@ DE_SUPPORT_MVAT_B2B\tDE`;
       status(`Loaded: ${(file?.name || DATA.meta?.name || 'dataset')} (rows: ${DATA.rows.length.toLocaleString()})${keptInfo}`);
       $('#btnExportXlsx').disabled=false;
       $('#btnExportView').disabled=false;
+      const btnRegionMgLoad = document.getElementById('btnExportRegionMg');
+      if(btnRegionMgLoad) btnRegionMgLoad.disabled=false;
+      const btnRegionMgExtraLoad = document.getElementById('btnExportRegionMgExtra');
+      if(btnRegionMgExtraLoad) btnRegionMgExtraLoad.disabled = !hasExtraColumns();
       $('#btnExportSimSummary').disabled=false;
         const btnFilteredWhSimSummary = document.getElementById('btnExportFilteredWarehouseSimSummary');
         if(btnFilteredWhSimSummary) btnFilteredWhSimSummary.disabled=false;
@@ -2581,6 +2703,8 @@ DE_SUPPORT_MVAT_B2B\tDE`;
   $('#btnExportView').addEventListener('click', ()=>exportExcel(true, false));
   document.getElementById('btnExportXlsxExtra')?.addEventListener('click', ()=>exportExcel(false, true));
   document.getElementById('btnExportViewExtra')?.addEventListener('click', ()=>exportExcel(true, true));
+  document.getElementById('btnExportRegionMg')?.addEventListener('click', ()=>exportRegionMgExcel(false));
+  document.getElementById('btnExportRegionMgExtra')?.addEventListener('click', ()=>exportRegionMgExcel(true));
   $('#btnExportSimSummary').addEventListener('click', exportSimSummaryExcel);
   document.getElementById('btnExportFilteredWarehouseSimSummary')?.addEventListener('click', exportFilteredWarehouseSimSummaryExcel);
   document.getElementById('btnExportFilteredRegionSimSummary')?.addEventListener('click', exportFilteredRegionSimSummaryExcel);
@@ -2829,8 +2953,10 @@ DE_SUPPORT_MVAT_B2B\tDE`;
   updateOptionalFileStatus();
   const btnExtraAllInit = document.getElementById('btnExportXlsxExtra');
   const btnExtraViewInit = document.getElementById('btnExportViewExtra');
+  const btnRegionMgExtraInit = document.getElementById('btnExportRegionMgExtra');
   if(btnExtraAllInit) btnExtraAllInit.disabled = !hasExtraColumns();
   if(btnExtraViewInit) btnExtraViewInit.disabled = !hasExtraColumns();
+  if(btnRegionMgExtraInit) btnRegionMgExtraInit.disabled = !hasExtraColumns();
 })();
 </script>
 
@@ -2867,6 +2993,113 @@ DE_SUPPORT_MVAT_B2B\tDE`;
     }
     return null;
   }
+
+  // Excel cells cannot hold more than 32,767 characters.
+  // Some stock exports contain very long text fields (for example full descriptions,
+  // variant/specification blobs, pasted HTML, or JSON). SheetJS will fail the XLSX
+  // export unless those values are shortened before writing the workbook.
+  const EXCEL_TEXT_LIMIT = 32767;
+  const TRUNCATION_SUFFIX = '...[truncated]';
+  function safeExcelValue(value){
+    if(value == null) return '';
+    if(typeof value !== 'string') return value;
+    if(value.length <= EXCEL_TEXT_LIMIT) return value;
+    return value.slice(0, EXCEL_TEXT_LIMIT - TRUNCATION_SUFFIX.length) + TRUNCATION_SUFFIX;
+  }
+  function sanitizeRowsForExcel(rows, cols){
+    let truncatedCells = 0;
+    const safeRows = (rows || []).map(row => {
+      const out = {};
+      (cols || Object.keys(row || {})).forEach(col => {
+        const original = row ? row[col] : '';
+        const safe = safeExcelValue(original);
+        if(typeof original === 'string' && original.length > EXCEL_TEXT_LIMIT) truncatedCells++;
+        out[col] = safe;
+      });
+      return out;
+    });
+    return {rows: safeRows, truncatedCells};
+  }
+
+  function normalizeHeaderCell(value){
+    return String(value == null ? '' : value).trim();
+  }
+  function findColumnIndex(headers, aliases){
+    const lookup = Object.create(null);
+    (headers || []).forEach((h, idx) => {
+      const key = normalizeHeaderCell(h).toLowerCase();
+      if(key && lookup[key] == null) lookup[key] = idx;
+    });
+    for(const alias of aliases){
+      const key = normalizeHeaderCell(alias).toLowerCase();
+      if(lookup[key] != null) return lookup[key];
+    }
+    return -1;
+  }
+  function normalizeCategoryValue(value){
+    return String(value == null ? '' : value).trim();
+  }
+  function countCategories(dataRows, categoryIndex){
+    const counts = Object.create(null);
+    if(categoryIndex < 0) return counts;
+    (dataRows || []).forEach(row => {
+      const label = normalizeCategoryValue(row && row[categoryIndex]).replace(/\s+/g, ' ') || '(blank)';
+      counts[label] = (counts[label] || 0) + 1;
+    });
+    return counts;
+  }
+  function categoryCountString(counts){
+    const preferred = ['Accessories','Computers','Environment Products','Floor Care','Laptops','Smartphones','Tablets','Wearables','(blank)'];
+    const used = new Set();
+    const parts = [];
+    preferred.forEach(k => {
+      if(Object.prototype.hasOwnProperty.call(counts, k)){
+        parts.push(k + ': ' + counts[k]);
+        used.add(k);
+      }
+    });
+    Object.keys(counts).sort().forEach(k => {
+      if(!used.has(k)) parts.push(k + ': ' + counts[k]);
+    });
+    return parts.join(' | ');
+  }
+  function sanitizeAoaForExcel(aoa){
+    let truncatedCells = 0;
+    const safeRows = (aoa || []).map(row => (row || []).map(value => {
+      const safe = safeExcelValue(value);
+      if(typeof value === 'string' && value.length > EXCEL_TEXT_LIMIT) truncatedCells++;
+      return safe;
+    }));
+    return {rows: safeRows, truncatedCells};
+  }
+
+  function csvFileToWorkbookWithPapa(file){
+    return new Promise((resolve, reject) => {
+      if(typeof Papa === 'undefined'){
+        reject(new Error('PapaParse library is not loaded. Please check the PapaParse CDN link in the HTML.'));
+        return;
+      }
+      Papa.parse(file, {
+        header: false,
+        skipEmptyLines: 'greedy',
+        dynamicTyping: false,
+        worker: false,
+        complete: results => {
+          try{
+            const aoa = (results && results.data) ? results.data : [];
+            const wb = XLSX.utils.book_new();
+            const ws = XLSX.utils.aoa_to_sheet(aoa);
+            XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+            resolve(wb);
+          }catch(err){
+            reject(err);
+          }
+        },
+        error: err => reject(err)
+      });
+    });
+  }
+
   function buildDownloadBlob(workbook, sourceFileName){
     const allowed = new Set(['tablets', 'smartphones', 'wearables']);
     const outBook = XLSX.utils.book_new();
@@ -2874,35 +3107,44 @@ DE_SUPPORT_MVAT_B2B\tDE`;
     const summary = [];
     let totalOriginal = 0;
     let totalKept = 0;
+    let totalTruncatedCells = 0;
     let sheetsAdded = 0;
 
     workbook.SheetNames.forEach(sheetName => {
       const ws = workbook.Sheets[sheetName];
-      const rows = XLSX.utils.sheet_to_json(ws, {defval:'', raw:false});
-      const cols = rows.length ? Object.keys(rows[0] || {}) : [];
-      const categoryCol = pickColumn(cols, ['Category', 'category', 'Product Category', 'Item Category']);
-      const filtered = categoryCol
-        ? rows.filter(row => allowed.has(String(row[categoryCol] || '').trim().toLowerCase()))
+      const ref = ws && ws['!ref'];
+      const aoa = ref
+        ? XLSX.utils.sheet_to_json(ws, {header:1, defval:'', raw:false, blankrows:true, range: ref})
         : [];
+      const headers = (aoa[0] || []).map(normalizeHeaderCell);
+      const dataRows = aoa.length > 1 ? aoa.slice(1) : [];
+      const categoryIndex = findColumnIndex(headers, ['Category', 'category', 'Product Category', 'Item Category']);
+      const categoryCol = categoryIndex >= 0 ? headers[categoryIndex] : '';
+      const filteredRows = categoryIndex >= 0
+        ? dataRows.filter(row => allowed.has(normalizeCategoryValue(row && row[categoryIndex]).toLowerCase()))
+        : [];
+      const filteredAoa = headers.length ? [headers, ...filteredRows] : [['No header row found in original sheet']];
+      const sanitized = sanitizeAoaForExcel(filteredAoa);
+      totalTruncatedCells += sanitized.truncatedCells;
 
-      totalOriginal += rows.length;
-      totalKept += filtered.length;
+      totalOriginal += dataRows.length;
+      totalKept += filteredRows.length;
+      const categoryCounts = countCategories(dataRows, categoryIndex);
       summary.push({
         Sheet: sheetName,
         CategoryColumn: categoryCol || 'NOT FOUND',
-        OriginalRows: rows.length,
-        KeptRows: filtered.length,
-        RemovedRows: Math.max(0, rows.length - filtered.length)
+        OriginalRows: dataRows.length,
+        KeptRows: filteredRows.length,
+        RemovedRows: Math.max(0, dataRows.length - filteredRows.length),
+        TruncatedCells: sanitized.truncatedCells,
+        CategoryCounts: categoryCountString(categoryCounts)
       });
 
-      // Preserve every original sheet structure: same columns, filtered rows only.
+      // Preserve every original sheet structure: same header row/columns, filtered rows only.
+      // This uses row-array parsing with blankrows:true so the row count follows the worksheet range
+      // instead of SheetJS object mode, which can silently skip fully blank rows.
       const outName = uniqueSheetName(usedSheetNames, sheetName);
-      let outSheet;
-      if(cols.length){
-        outSheet = XLSX.utils.json_to_sheet(filtered, {header: cols});
-      } else {
-        outSheet = XLSX.utils.aoa_to_sheet([['No rows found in original sheet']]);
-      }
+      const outSheet = XLSX.utils.aoa_to_sheet(sanitized.rows);
       XLSX.utils.book_append_sheet(outBook, outSheet, outName);
       sheetsAdded++;
     });
@@ -2911,7 +3153,7 @@ DE_SUPPORT_MVAT_B2B\tDE`;
       XLSX.utils.book_append_sheet(outBook, XLSX.utils.aoa_to_sheet([['No readable sheets found']]), 'Filtered Output');
     }
 
-    const summarySheet = XLSX.utils.json_to_sheet(summary.length ? summary : [{Sheet:'-', CategoryColumn:'-', OriginalRows:0, KeptRows:0, RemovedRows:0}]);
+    const summarySheet = XLSX.utils.json_to_sheet(summary.length ? summary : [{Sheet:'-', CategoryColumn:'-', OriginalRows:0, KeptRows:0, RemovedRows:0, TruncatedCells:0, CategoryCounts:''}]);
     XLSX.utils.book_append_sheet(outBook, summarySheet, uniqueSheetName(usedSheetNames, 'Filter Summary'));
 
     const array = XLSX.write(outBook, {bookType:'xlsx', type:'array'});
@@ -2923,6 +3165,7 @@ DE_SUPPORT_MVAT_B2B\tDE`;
       summary,
       totalOriginal,
       totalKept,
+      totalTruncatedCells,
       totalRemoved: Math.max(0, totalOriginal - totalKept)
     };
   }
@@ -2942,15 +3185,20 @@ DE_SUPPORT_MVAT_B2B\tDE`;
   }
   function renderSummary(container, result){
     if(!container) return;
-    const rows = (result.summary || []).map(r => `
+    const rows = (result.summary || []).map(r => {
+      const esc = v => String(v == null ? '' : v).replace(/[&<>]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[ch]));
+      return `
       <tr>
-        <td>${String(r.Sheet).replace(/[&<>]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[ch]))}</td>
-        <td>${String(r.CategoryColumn).replace(/[&<>]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[ch]))}</td>
+        <td>${esc(r.Sheet)}</td>
+        <td>${esc(r.CategoryColumn)}</td>
         <td class="right">${Number(r.OriginalRows || 0).toLocaleString()}</td>
         <td class="right">${Number(r.KeptRows || 0).toLocaleString()}</td>
-      </tr>`).join('');
+        <td class="right">${Number(r.TruncatedCells || 0).toLocaleString()}</td>
+        <td>${esc(r.CategoryCounts)}</td>
+      </tr>`;
+    }).join('');
     container.style.display = '';
-    container.innerHTML = `<table><thead><tr><th>Sheet</th><th>Category column</th><th class="right">Rows</th><th class="right">Kept</th></tr></thead><tbody>${rows}</tbody></table>`;
+    container.innerHTML = `<table><thead><tr><th>Sheet</th><th>Category column</th><th class="right">Rows</th><th class="right">Kept</th><th class="right">Long cells</th><th>Category counts</th></tr></thead><tbody>${rows}</tbody></table>`;
   }
 
   onReady(function(){
@@ -3030,8 +3278,7 @@ DE_SUPPORT_MVAT_B2B\tDE`;
           const isCsv = /\.csv$/i.test(file.name) || String(file.type || '').toLowerCase().includes('csv');
           let workbook;
           if(isCsv){
-            const text = await file.text();
-            workbook = XLSX.read(text, {type:'string', raw:false});
+            workbook = await csvFileToWorkbookWithPapa(file);
           } else {
             const buffer = await file.arrayBuffer();
             workbook = XLSX.read(buffer, {type:'array'});
@@ -3043,10 +3290,11 @@ DE_SUPPORT_MVAT_B2B\tDE`;
             statsBox.innerHTML = `
               <div>Original rows</div><div>${latestResult.totalOriginal.toLocaleString()}</div>
               <div>Kept rows</div><div>${latestResult.totalKept.toLocaleString()}</div>
-              <div>Removed rows</div><div>${latestResult.totalRemoved.toLocaleString()}</div>`;
+              <div>Removed rows</div><div>${latestResult.totalRemoved.toLocaleString()}</div>
+              <div>Long cells truncated</div><div>${(latestResult.totalTruncatedCells || 0).toLocaleString()}</div>`;
           }
           renderSummary(summaryBox, latestResult);
-          setStatus(`Ready: kept ${latestResult.totalKept.toLocaleString()} rows. Only Tablets / Smartphones / Wearables remain.`);
+          setStatus(`Ready: kept ${latestResult.totalKept.toLocaleString()} rows. Only Tablets / Smartphones / Wearables remain.${latestResult.totalTruncatedCells ? ' Long cells were shortened for Excel compatibility.' : ''}`);
           saveBlob(latestResult.blob, latestResult.filename);
         } catch(error){
           console.error(error);
