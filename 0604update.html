@@ -96,6 +96,16 @@
       <input id="nameFile" type="file" accept=".xlsx,.xls,.csv" style="margin-left:8px">
       <button id="btnNameMap" title="Load the selected name mapping file">Load name map</button>
     </div>
+    <details class="section" id="batchPasteDetails">
+      <summary>Paste batch filter rows — Region / Model Grade / price</summary>
+      <div class="hint" style="margin-top:8px">You can paste directly from Excel. Required: Region and Model Grade. Optional: price/offer, Variant, Location/Warehouse. Price can include $ or commas; they will be cleaned automatically.</div>
+      <textarea id="batchPasteBox" placeholder="Region&#9;Model Grade&#9;price&#10;CA&#9;iPad Air 3 64GB WiFi-D&#9;$35&#10;CA&#9;iPad Air 4 64GB WiFi-D&#9;$120"></textarea>
+      <div class="row" style="margin-top:8px">
+        <button id="btnBatchPaste" title="Apply the pasted batch filter table">Apply pasted batch filter</button>
+        <button id="btnClearBatchPaste" title="Clear pasted batch filter text">Clear pasted text</button>
+        <span class="hint">File upload batch filter is still supported by the original Batch filter button.</span>
+      </div>
+    </details>
     <div id="optionalFileStatus" class="hint" style="margin-top:8px">Optional files not loaded</div>
 
     <div class="row section">
@@ -1105,6 +1115,69 @@ DE_SUPPORT_MVAT_B2B\tDE`;
     if(isCsvFile(file)){
       return parseCsvWithPapa(file);
     }
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf,{type:'array'});
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    return XLSX.utils.sheet_to_json(ws,{defval:'',raw:false});
+  }
+
+
+  // Batch input parser is intentionally separate from stock CSV import.
+  // Stock CSV uses PapaParse + Category prefilter; batch CSV/text must NOT require a Category column.
+  function cleanBatchOfferValue(value){
+    const raw = String(value == null ? '' : value).trim();
+    if(!raw) return '';
+    return raw.replace(/[$£€¥,]/g, '').replace(/\s+/g, '');
+  }
+
+  function parseBatchText(text){
+    const raw = String(text || '').trim();
+    if(!raw) return [];
+    if(typeof Papa !== 'undefined'){
+      const parsed = Papa.parse(raw, {
+        header: true,
+        skipEmptyLines: 'greedy',
+        dynamicTyping: false,
+        transformHeader: h => String(h == null ? '' : h).trim()
+      });
+      const rows = (parsed && parsed.data) ? parsed.data.filter(r => Object.values(r || {}).some(v => String(v == null ? '' : v).trim() !== '')) : [];
+      if(rows.length) return rows;
+    }
+    const lines = raw.split(/\r?\n/).filter(line => line.trim() !== '');
+    if(lines.length < 2) return [];
+    const delimiter = lines[0].includes('\t') ? '\t' : ',';
+    const headers = lines[0].split(delimiter).map(h => h.trim());
+    return lines.slice(1).map(line => {
+      const cells = line.split(delimiter);
+      const row = {};
+      headers.forEach((h, i) => { row[h] = cells[i] == null ? '' : cells[i].trim(); });
+      return row;
+    }).filter(r => Object.values(r).some(v => String(v == null ? '' : v).trim() !== ''));
+  }
+
+  function parseBatchCsvWithPapa(file){
+    return new Promise((resolve, reject) => {
+      if(typeof Papa === 'undefined'){
+        reject(new Error('PapaParse library is not loaded. Please check the PapaParse CDN link in the HTML.'));
+        return;
+      }
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: 'greedy',
+        dynamicTyping: false,
+        worker: false,
+        transformHeader: h => String(h == null ? '' : h).trim(),
+        complete: results => {
+          const rows = (results && results.data) ? results.data.filter(r => Object.values(r || {}).some(v => String(v == null ? '' : v).trim() !== '')) : [];
+          resolve(rows);
+        },
+        error: err => reject(err)
+      });
+    });
+  }
+
+  async function parseBatchFile(file){
+    if(isCsvFile(file)) return parseBatchCsvWithPapa(file);
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf,{type:'array'});
     const ws = wb.Sheets[wb.SheetNames[0]];
@@ -2755,187 +2828,208 @@ for(const country of countries){
   // Batch filter loader: supports Region, Model Grade, optional Offer/Price, Variant, and Location/Warehouse columns.
   // Backward compatible with the old positional format: 1=Region, 2=Model Grade, 3=Price, 4=Variant, 5=Warehouse.
   // Region = ALL applies to every region; Location/Variant = ALL or blank applies to every detail row.
+  // Column names are flexible. If aliases are not found, the tool falls back to column position.
+  async function applyBatchRows(rows, sourceLabel){
+    if(!rows || !rows.length){ alert('Batch input is empty'); return; }
+
+    const keys = Object.keys(rows[0]||{}).map(k => String(k == null ? '' : k).trim());
+    if(keys.length < 2){ alert('Batch input must have at least Region and Model Grade columns'); return; }
+
+    const colRegion = pickCol(keys, ['Region','Country']) || keys[0];
+    const colModelGrade = pickCol(keys, ['Model Grade','ModelGrade','Model_Grade','Model','Item']) || keys[1];
+    let colOffer = pickCol(keys, ['Offer','Price','price','Unit Price','UnitPrice','Quotation','Bid','Bid Price']);
+    let colVariant = pickCol(keys, ['Variant','Variant Code','VariantId','VariantID','Variant Model','Variant Number']);
+    let colLocation = pickCol(keys, ['Location','Location Code','Warehouse','Warehouse Location','Location_Code','Loc']);
+
+    // Positional fallback used by previous Mobile Stock batch files and pasted Excel tables.
+    if(!colOffer && keys.length > 2){
+      const third = keys[2];
+      if(third !== colLocation && third !== colVariant) colOffer = third;
+    }
+    if(!colVariant && keys.length > 3) colVariant = keys[3];
+    if(!colLocation && keys.length > 4) colLocation = keys[4];
+
+    BATCH_SET.clear();
+    BATCH_LOCATION_RULES.clear();
+    BATCH_VARIANT_RULES.clear();
+    ORDER_ENTRIES = {};
+    const batchOffers = new Map();
+
+    rows.forEach(r => {
+      const regionRaw = String(r[colRegion]||'').trim();
+      const region = isBatchAllRegionValue(regionRaw) ? 'ALL' : regionRaw.toUpperCase();
+      const mgRaw = String(r[colModelGrade]||'').trim();
+      if(!region || !mgRaw) return;
+
+      const mgClean = canonicalizeBatchModelGrade(mgRaw);
+      const keyPair = makeBatchPairKey(region, mgClean);
+      BATCH_SET.add(keyPair);
+
+      let locRule = BATCH_LOCATION_RULES.get(keyPair);
+      if(!locRule){
+        locRule = {all:false, locations:new Set()};
+        BATCH_LOCATION_RULES.set(keyPair, locRule);
+      }
+      let varRule = BATCH_VARIANT_RULES.get(keyPair);
+      if(!varRule){
+        varRule = {all:false, variants:new Set()};
+        BATCH_VARIANT_RULES.set(keyPair, varRule);
+      }
+
+      const locRaw = colLocation ? r[colLocation] : '';
+      const isAllLoc = !colLocation || isBatchAllLocationValue(locRaw);
+      const locKey = normalizeBatchLocationKey(locRaw);
+      if(isAllLoc){
+        locRule.all = true;
+      } else if(locKey){
+        locRule.locations.add(locKey);
+      }
+
+      const varRaw = colVariant ? r[colVariant] : '';
+      const isAllVar = !colVariant || isBatchAllVariantValue(varRaw);
+      const varKey = normalizeBatchVariantKey(varRaw);
+      if(isAllVar){
+        varRule.all = true;
+      } else if(varKey){
+        varRule.variants.add(varKey);
+      }
+
+      if(colOffer){
+        const offerVal = cleanBatchOfferValue(r[colOffer]);
+        if(offerVal !== ''){
+          const offerKey = keyPair + '\t' + (isAllLoc ? 'ALL' : locKey) + '\t' + (isAllVar ? 'ALL' : varKey);
+          batchOffers.set(offerKey, offerVal);
+        }
+      }
+    });
+
+    if(!BATCH_SET.size){ alert('Batch input has no usable rows'); return; }
+
+    function getBatchOffer(country, header, loc, variant, aggCtx=null){
+      const pairKeys = getBatchPairKeys(country, header, aggCtx);
+      if(!pairKeys.length) return '';
+      const locKey = normalizeBatchLocationKey(loc);
+      const varKey = normalizeBatchVariantKey(variant);
+      for(const pair of pairKeys){
+        const candidates = [];
+        if(locKey && varKey){
+          candidates.push(pair + '\t' + locKey + '\t' + varKey);
+          candidates.push(pair + '\t' + locKey + '\tALL');
+          candidates.push(pair + '\tALL\t' + varKey);
+          candidates.push(pair + '\tALL\tALL');
+        } else if(locKey){
+          candidates.push(pair + '\t' + locKey + '\tALL');
+          candidates.push(pair + '\tALL\tALL');
+        } else if(varKey){
+          candidates.push(pair + '\tALL\t' + varKey);
+          candidates.push(pair + '\tALL\tALL');
+        } else {
+          candidates.push(pair + '\tALL\tALL');
+        }
+        for(const k of candidates){
+          if(batchOffers.has(k)) return batchOffers.get(k);
+        }
+      }
+      return '';
+    }
+
+    function hasAnyAllItemRule(country, header, aggCtx=null){
+      return getBatchPairKeys(country, header, aggCtx).some(pairKey => {
+        const locRule = BATCH_LOCATION_RULES.get(pairKey);
+        const varRule = BATCH_VARIANT_RULES.get(pairKey);
+        return (!locRule || locRule.all) && (!varRule || varRule.all);
+      });
+    }
+
+    rebuildBatchCacheToken();
+    clearDerivedCaches();
+
+    let matchedAggCount = 0;
+    let matchedDetailCount = 0;
+
+    // Apply batch filter: set quantities and offers on matching aggregated/detail rows.
+    for(const r of DATA.rows){
+      if(!batchAllowsAgg(r)) continue;
+      const agg = AGG_MAP[r.Key];
+      const qtyEff = getEffectiveAggQty(agg || r);
+      if(qtyEff <= 0) continue;
+      matchedAggCount++;
+
+      if(hasAnyAllItemRule(r.Country, r.Header, agg)){
+        if(!ORDER_ENTRIES[r.Key]) ORDER_ENTRIES[r.Key] = {qty:0, offer:''};
+        ORDER_ENTRIES[r.Key].qty = qtyEff;
+        const offer = getBatchOffer(r.Country, r.Header, null, null, agg);
+        if(offer !== '') ORDER_ENTRIES[r.Key].offer = offer;
+        const childCount = agg && Array.isArray(agg.rows) ? agg.rows.filter(it => getEffectiveItemQty(it, agg) > 0).length : 1;
+        matchedDetailCount += childCount;
+        continue;
+      }
+
+      // Location/variant-specific batch rows are stored as per-detail order entries,
+      // so exports do not duplicate the parent aggregated row.
+      if(!ORDER_ENTRIES[r.Key]) ORDER_ENTRIES[r.Key] = {qty:0, offer:''};
+      ORDER_ENTRIES[r.Key].qty = 0;
+
+      const matchingOffers = [];
+      if(agg && Array.isArray(agg.rows)){
+        for(let i=0; i<agg.rows.length; i++){
+          const it = agg.rows[i];
+          if(!batchAllowsItem(agg.Country, agg.Header, it, agg)) continue;
+          const qEff = getEffectiveItemQty(it, agg);
+          if(qEff <= 0) continue;
+          matchedDetailCount++;
+          const subKey = r.Key + '\u0002' + i;
+          const subOffer = getBatchOffer(r.Country, r.Header, it.Loc, it.Variant, agg);
+          if(subOffer !== '') matchingOffers.push(subOffer);
+          if(!ORDER_ENTRIES[subKey]) ORDER_ENTRIES[subKey] = {qty:0, offer:''};
+          ORDER_ENTRIES[subKey].qty = qEff;
+          ORDER_ENTRIES[subKey].offer = subOffer;
+        }
+      }
+
+      const uniqueOffers = Array.from(new Set(matchingOffers.filter(v => v !== '')));
+      if(uniqueOffers.length === 1){
+        ORDER_ENTRIES[r.Key].offer = uniqueOffers[0];
+      }
+    }
+
+    clearDerivedCaches();
+    scheduleRender();
+    updateOrderButtons();
+    const hasAllRegion = Array.from(BATCH_SET).some(k => k.startsWith('ALL\t'));
+    const locationModeText = Array.from(BATCH_LOCATION_RULES.values()).some(rule => rule && !rule.all) ? 'with location rules' : 'all locations';
+    const variantModeText = Array.from(BATCH_VARIANT_RULES.values()).some(rule => rule && !rule.all) ? 'with variant rules' : 'all variants';
+    const regionModeText = hasAllRegion ? 'all regions supported' : 'specific regions only';
+    status(`Batch filter loaded from ${sourceLabel || 'input'} (${matchedAggCount.toLocaleString()} aggregate matches, ${matchedDetailCount.toLocaleString()} detail matches, ${regionModeText}, ${locationModeText}, ${variantModeText})`);
+  }
+
   document.getElementById('btnBatchFilter')?.addEventListener('click', async () => {
     const fileInput = document.getElementById('batchFile');
     const file = fileInput?.files?.[0];
-    if(!file){ alert('Choose a batch file first'); return; }
+    if(!file){ alert('Choose a batch file first, or paste rows and click Apply pasted batch filter'); return; }
     try{
-      const rows = await parseFile(file);
-      if(!rows || !rows.length){ alert('Batch file is empty'); return; }
-
-      const keys = Object.keys(rows[0]||{});
-      if(keys.length < 2){ alert('Batch file must have at least Region and Model Grade columns'); return; }
-
-      const colRegion = pickCol(keys, ['Region','Country']) || keys[0];
-      const colModelGrade = pickCol(keys, ['Model Grade','ModelGrade','Model_Grade','Model','Item']) || keys[1];
-      let colOffer = pickCol(keys, ['Offer','Price','Unit Price','UnitPrice','Quotation','Bid','Bid Price']);
-      let colVariant = pickCol(keys, ['Variant','Variant Code','VariantId','VariantID','Variant Model','Variant Number']);
-      let colLocation = pickCol(keys, ['Location','Location Code','Warehouse','Warehouse Location','Location_Code','Loc']);
-
-      // Positional fallback used by your previous Mobile Stock batch files.
-      if(!colOffer && keys.length > 2){
-        const third = keys[2];
-        if(third !== colLocation && third !== colVariant) colOffer = third;
-      }
-      if(!colVariant && keys.length > 3) colVariant = keys[3];
-      if(!colLocation && keys.length > 4) colLocation = keys[4];
-
-      BATCH_SET.clear();
-      BATCH_LOCATION_RULES.clear();
-      BATCH_VARIANT_RULES.clear();
-      ORDER_ENTRIES = {};
-      const batchOffers = new Map();
-
-      rows.forEach(r => {
-        const regionRaw = String(r[colRegion]||'').trim();
-        const region = isBatchAllRegionValue(regionRaw) ? 'ALL' : regionRaw.toUpperCase();
-        const mgRaw = String(r[colModelGrade]||'').trim();
-        if(!region || !mgRaw) return;
-
-        const mgClean = canonicalizeBatchModelGrade(mgRaw);
-        const keyPair = makeBatchPairKey(region, mgClean);
-        BATCH_SET.add(keyPair);
-
-        let locRule = BATCH_LOCATION_RULES.get(keyPair);
-        if(!locRule){
-          locRule = {all:false, locations:new Set()};
-          BATCH_LOCATION_RULES.set(keyPair, locRule);
-        }
-        let varRule = BATCH_VARIANT_RULES.get(keyPair);
-        if(!varRule){
-          varRule = {all:false, variants:new Set()};
-          BATCH_VARIANT_RULES.set(keyPair, varRule);
-        }
-
-        const locRaw = colLocation ? r[colLocation] : '';
-        const isAllLoc = !colLocation || isBatchAllLocationValue(locRaw);
-        const locKey = normalizeBatchLocationKey(locRaw);
-        if(isAllLoc){
-          locRule.all = true;
-        } else if(locKey){
-          locRule.locations.add(locKey);
-        }
-
-        const varRaw = colVariant ? r[colVariant] : '';
-        const isAllVar = !colVariant || isBatchAllVariantValue(varRaw);
-        const varKey = normalizeBatchVariantKey(varRaw);
-        if(isAllVar){
-          varRule.all = true;
-        } else if(varKey){
-          varRule.variants.add(varKey);
-        }
-
-        if(colOffer){
-          const offerVal = r[colOffer];
-          if(offerVal != null && String(offerVal).trim() !== ''){
-            const offerKey = keyPair + '\t' + (isAllLoc ? 'ALL' : locKey) + '\t' + (isAllVar ? 'ALL' : varKey);
-            batchOffers.set(offerKey, String(offerVal).trim());
-          }
-        }
-      });
-
-      if(!BATCH_SET.size){ alert('Batch file has no usable rows'); return; }
-
-      function getBatchOffer(country, header, loc, variant, aggCtx=null){
-        const pairKeys = getBatchPairKeys(country, header, aggCtx);
-        if(!pairKeys.length) return '';
-        const locKey = normalizeBatchLocationKey(loc);
-        const varKey = normalizeBatchVariantKey(variant);
-        for(const pair of pairKeys){
-          const candidates = [];
-          if(locKey && varKey){
-            candidates.push(pair + '\t' + locKey + '\t' + varKey);
-            candidates.push(pair + '\t' + locKey + '\tALL');
-            candidates.push(pair + '\tALL\t' + varKey);
-            candidates.push(pair + '\tALL\tALL');
-          } else if(locKey){
-            candidates.push(pair + '\t' + locKey + '\tALL');
-            candidates.push(pair + '\tALL\tALL');
-          } else if(varKey){
-            candidates.push(pair + '\tALL\t' + varKey);
-            candidates.push(pair + '\tALL\tALL');
-          } else {
-            candidates.push(pair + '\tALL\tALL');
-          }
-          for(const k of candidates){
-            if(batchOffers.has(k)) return batchOffers.get(k);
-          }
-        }
-        return '';
-      }
-
-      function hasAnyAllItemRule(country, header, aggCtx=null){
-        return getBatchPairKeys(country, header, aggCtx).some(pairKey => {
-          const locRule = BATCH_LOCATION_RULES.get(pairKey);
-          const varRule = BATCH_VARIANT_RULES.get(pairKey);
-          return (!locRule || locRule.all) && (!varRule || varRule.all);
-        });
-      }
-
-      rebuildBatchCacheToken();
-      clearDerivedCaches();
-
-      let matchedAggCount = 0;
-      let matchedDetailCount = 0;
-
-      // Apply batch filter: set quantities and offers on matching aggregated/detail rows.
-      for(const r of DATA.rows){
-        if(!batchAllowsAgg(r)) continue;
-        const agg = AGG_MAP[r.Key];
-        const qtyEff = getEffectiveAggQty(agg || r);
-        if(qtyEff <= 0) continue;
-        matchedAggCount++;
-
-        if(hasAnyAllItemRule(r.Country, r.Header, agg)){
-          if(!ORDER_ENTRIES[r.Key]) ORDER_ENTRIES[r.Key] = {qty:0, offer:''};
-          ORDER_ENTRIES[r.Key].qty = qtyEff;
-          const offer = getBatchOffer(r.Country, r.Header, null, null, agg);
-          if(offer !== '') ORDER_ENTRIES[r.Key].offer = offer;
-          const childCount = agg && Array.isArray(agg.rows) ? agg.rows.filter(it => getEffectiveItemQty(it, agg) > 0).length : 1;
-          matchedDetailCount += childCount;
-          continue;
-        }
-
-        // Location/variant-specific batch rows are stored as per-detail order entries,
-        // so exports do not duplicate the parent aggregated row.
-        if(!ORDER_ENTRIES[r.Key]) ORDER_ENTRIES[r.Key] = {qty:0, offer:''};
-        ORDER_ENTRIES[r.Key].qty = 0;
-
-        const matchingOffers = [];
-        if(agg && Array.isArray(agg.rows)){
-          for(let i=0; i<agg.rows.length; i++){
-            const it = agg.rows[i];
-            if(!batchAllowsItem(agg.Country, agg.Header, it, agg)) continue;
-            const qEff = getEffectiveItemQty(it, agg);
-            if(qEff <= 0) continue;
-            matchedDetailCount++;
-            const subKey = r.Key + '\u0002' + i;
-            const subOffer = getBatchOffer(r.Country, r.Header, it.Loc, it.Variant, agg);
-            if(subOffer !== '') matchingOffers.push(subOffer);
-            if(!ORDER_ENTRIES[subKey]) ORDER_ENTRIES[subKey] = {qty:0, offer:''};
-            ORDER_ENTRIES[subKey].qty = qEff;
-            ORDER_ENTRIES[subKey].offer = subOffer;
-          }
-        }
-
-        const uniqueOffers = Array.from(new Set(matchingOffers.filter(v => v !== '')));
-        if(uniqueOffers.length === 1){
-          ORDER_ENTRIES[r.Key].offer = uniqueOffers[0];
-        }
-      }
-
-      clearDerivedCaches();
-      scheduleRender();
-      updateOrderButtons();
-      const hasAllRegion = Array.from(BATCH_SET).some(k => k.startsWith('ALL\t'));
-      const locationModeText = Array.from(BATCH_LOCATION_RULES.values()).some(rule => rule && !rule.all) ? 'with location rules' : 'all locations';
-      const variantModeText = Array.from(BATCH_VARIANT_RULES.values()).some(rule => rule && !rule.all) ? 'with variant rules' : 'all variants';
-      const regionModeText = hasAllRegion ? 'all regions supported' : 'specific regions only';
-      status(`Batch filter loaded (${matchedAggCount.toLocaleString()} aggregate matches, ${matchedDetailCount.toLocaleString()} detail matches, ${regionModeText}, ${locationModeText}, ${variantModeText})`);
+      const rows = await parseBatchFile(file);
+      await applyBatchRows(rows, file.name || 'batch file');
     }catch(err){
       console.error(err);
       alert('Failed to load batch filter: ' + (err.message || String(err)));
     }
+  });
+
+  document.getElementById('btnBatchPaste')?.addEventListener('click', async () => {
+    try{
+      const pasted = document.getElementById('batchPasteBox')?.value || '';
+      const rows = parseBatchText(pasted);
+      await applyBatchRows(rows, 'pasted table');
+    }catch(err){
+      console.error(err);
+      alert('Failed to load pasted batch filter: ' + (err.message || String(err)));
+    }
+  });
+
+  document.getElementById('btnClearBatchPaste')?.addEventListener('click', () => {
+    const box = document.getElementById('batchPasteBox');
+    if(box) box.value = '';
   });
 
   // Summary toggle: update global flag and re-render table when changed
