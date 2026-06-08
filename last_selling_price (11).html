@@ -1,0 +1,1586 @@
+<!--
+  Last Selling Price Search/Reporting Tool
+
+  This HTML/JavaScript file implements an interactive tool for exploring
+  historical sales data and computing the last average selling price (ASP)
+  across different models.  The user can upload two spreadsheets:
+
+    • sales_line_item_detail: Raw line‑item sales records containing
+      invoice information, product SKU, quantities sold, totals and
+      additional metadata.
+    • namematchingsku: A lookup table that maps the first four segments
+      of a SKU (pricing_sku) to a more friendly English model name.
+
+  Once both files are loaded the script performs the following
+  preprocessing steps:
+
+  1. Filters out cancelled orders and orders still in the “Order
+     Submitted” state – these rows are not considered completed sales.
+  2. Splits each SKU into its constituent parts.  The first segment
+     indicates product category (e.g. “PH” → “Smartphones”), the first
+     four segments joined by dashes give the pricing SKU used to lookup
+     the English name in namematchingsku, and the final segment
+     represents the grade.  The model grade displayed in the reports is
+     the English name suffixed with the grade; if no mapping is found
+     the pricing SKU itself is used instead.
+  3. Computes a per unit price by dividing the total by the quantity
+     sold and then converting that amount into US dollars.  Approximate
+     mid‑market exchange rates as of 16 October 2025 are hard coded
+     below – if up to date rates are required the dictionary can be
+     updated in one place.
+
+  After preprocessing the user can interact with the data through
+  several chip‑style filters and a token based model search:
+
+    • Date range chip: choose to view sales from the last 2 days,
+      last 7 days, last 1 month, last 3 months or all dates.  The
+      current date is taken from the client’s clock so the ranges
+      remain relative.
+    • Category chip: restrict results to a particular category (e.g.
+      “Phones”) or show all categories.
+    • Price lock chip: include or exclude rows where the SaleType is
+      “Pre‑Order” (pre‑orders are treated as price‑locked orders).
+    • Model search tokens: type one or more model names and press
+      comma or Enter; rows must match at least one token (OR search).
+
+  Three report types are available once a filter is applied:
+
+    1. Last ASP report – lists, for each country, the latest sale of
+       every model grade (based on CreatedAt).  Columns are Model Grade,
+       Last ASP (per unit price in USD) and Company (the company
+       associated with the most recent sale).
+    2. Sales by model grade – nests individual sales under each
+       model grade.  Each model grade row expands into rows showing
+       the date, selling price and quantity for each sale in the
+       filtered period.  Rowspans are used for readability.
+    3. Raw data – displays the filtered rows with all original
+       columns plus the computed per unit USD price, category, model
+       and model grade.  This table can be exported by copying into a
+       spreadsheet if needed.
+
+  The code is extensively commented so that future maintainers can
+  understand why each piece is implemented.  No external frameworks
+  besides the lightweight SheetJS (xlsx.full.min.js) library are
+  required; everything else is plain JavaScript and simple CSS.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Last Selling Price Search Tool</title>
+  <style>
+    /*
+      Basic styling for the page.  We use a light grey background to
+      distinguish the application from the browser chrome.  Tables
+      collapse their borders to avoid double lines, and header rows are
+      highlighted.
+    */
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 1em;
+      background: #121212; /* Dark mode background */
+      color: #e0e0e0;      /* Light text on dark background */
+    }
+    h1 {
+      margin-top: 0;
+    }
+    .section {
+      margin-bottom: 1.5em;
+    }
+    .file-input {
+      margin-bottom: 1em;
+    }
+    .chip-group {
+      display: flex;
+      gap: 0.5em;
+      flex-wrap: wrap;
+      margin-bottom: 1em;
+    }
+    .chip-group button {
+      border: 1px solid #555;
+      background-color: #333;
+      color: #e0e0e0;
+      padding: 0.5em 0.75em;
+      border-radius: 1em;
+      cursor: pointer;
+      font-size: 0.9em;
+    }
+    .chip-group button.active {
+      background-color: #007bff;
+      color: #fff;
+      border-color: #007bff;
+    }
+    #modelSearch {
+      margin-bottom: 1em;
+    }
+    #modelTokens {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5em;
+      margin-top: 0.5em;
+    }
+    .token {
+      background-color: #444;
+      border-radius: 1em;
+      padding: 0.25em 0.5em;
+      display: flex;
+      align-items: center;
+    }
+    .token span {
+      margin-right: 0.25em;
+    }
+    .token .remove {
+      cursor: pointer;
+      font-weight: bold;
+    }
+    /* Table styling */
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin-bottom: 2em;
+    }
+    th, td {
+      border: 1px solid #444;
+      padding: 4px 8px;
+      font-size: 0.85em;
+    }
+    th {
+      background-color: #222;
+      color: #e0e0e0;
+    }
+    td {
+      background-color: #1e1e1e;
+    }
+    /* Tab navigation styling */
+    .tabs {
+      display: flex;
+      gap: 1em;
+      margin-bottom: 1em;
+    }
+    .tabs button {
+      padding: 0.5em 1em;
+      border: none;
+      background: #333;
+      color: #e0e0e0;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+    }
+    .tabs button.active {
+      border-bottom: 2px solid #007bff;
+      color: #fff;
+      font-weight: bold;
+    }
+    .tab-content {
+      display: none;
+    }
+    .tab-content.active {
+      display: block;
+    }
+    .loading {
+      color: #007bff;
+    }
+    /* Country tab buttons inside the sales by model report */
+    .country-tabs {
+      display: flex;
+      gap: 0.5em;
+      margin-bottom: 1em;
+      flex-wrap: wrap;
+    }
+    .country-tabs button {
+      background-color: #333;
+      color: #e0e0e0;
+      border: 1px solid #555;
+      padding: 0.4em 0.8em;
+      border-radius: 0.5em;
+      cursor: pointer;
+    }
+    .country-tabs button.active {
+      background-color: #007bff;
+      color: #fff;
+      border-color: #007bff;
+    }
+  </style>
+  <!-- Include SheetJS (xlsx) library for client side Excel parsing -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+  <h1>Last Selling Price Search Tool</h1>
+
+  <div class="section" id="fileSection">
+    <p>
+      Please upload your <strong>sales_line_item_detail</strong> and
+      <strong>namematchingsku</strong> files.  The tool works entirely
+      in your browser – no data is sent to any server.
+    </p>
+    <div class="file-input">
+      <label for="salesFile">Sales line item file (.xlsx): </label>
+      <input type="file" id="salesFile" accept=".xlsx" />
+    </div>
+    <div class="file-input">
+      <label for="nameFile">Name matching file (.xlsx): </label>
+      <input type="file" id="nameFile" accept=".xlsx" />
+    </div>
+    <div id="fileStatus" class="loading"></div>
+    <!-- Process button is disabled until the sales file has been
+         provided.  The user must click this button to trigger
+         processing; automatic processing on file load would cause the
+         browser to lock up if the dataset is large. -->
+    <button id="processButton" disabled>Process Data</button>
+  </div>
+
+  <div class="section" id="filtersSection" style="display:none;">
+    <h2>Filters</h2>
+    <!-- Date range chip group -->
+    <div>
+      <strong>Date Range:</strong>
+      <div class="chip-group" id="dateChips">
+        <button data-value="2">Last 2 Days</button>
+        <button data-value="7">Last 7 Days</button>
+        <button data-value="30">1 Month</button>
+        <button data-value="90">3 Months</button>
+        <button data-value="all" class="active">All</button>
+      </div>
+    </div>
+    <!-- Category chip group -->
+    <div>
+      <strong>Category:</strong>
+      <div class="chip-group" id="categoryChips">
+        <!-- Category buttons will be initialized with 'All' selected.  Multiple
+             selections are allowed. -->
+        <button data-value="All" class="active">All</button>
+        <button data-value="Accessories">Accessories</button>
+        <button data-value="Environment Products">Environment Products</button>
+        <button data-value="Computers">Computers</button>
+        <button data-value="Laptops">Laptops</button>
+        <button data-value="Smartphones">Phones</button>
+        <button data-value="Wearables">Wearables</button>
+        <button data-value="Tablets">Tablets</button>
+      </div>
+    </div>
+    <!-- Country chip group -->
+    <div>
+      <strong>Country:</strong>
+      <div class="chip-group" id="countryChips">
+        <!-- Country buttons are populated dynamically after data is processed -->
+      </div>
+    </div>
+    <!-- Price lock chip group -->
+    <div>
+      <strong>Price Lock:</strong>
+      <div class="chip-group" id="priceChips">
+        <button data-value="all" class="active">Include All</button>
+        <button data-value="exclude">Exclude Price-Lock</button>
+        <button data-value="only">Only Price-Lock</button>
+      </div>
+    </div>
+
+    <!-- Currency rates input.  Allows the user to override the USD
+         conversion rates used when computing per unit prices.  The
+         default values come from the hard coded exchangeRates object.
+         After changing values click Update Rates to reapply them. -->
+    <div id="currencySection" style="margin-top:1em;">
+      <strong>Currency Rates (USD equivalent):</strong>
+      <div id="currencyInputs" style="display:flex; flex-wrap:wrap; gap:0.5em; margin-top:0.5em;"></div>
+      <button id="updateRates" style="margin-top:0.5em;">Update Rates</button>
+    </div>
+    <!-- Model search control -->
+    <div id="modelSearch">
+      <label for="modelInput"><strong>Model search (OR tokens):</strong></label><br/>
+      <input type="text" id="modelInput" list="modelSuggestions" placeholder="Type model name and press Enter or comma" style="width:60%; padding:0.4em;" />
+      <datalist id="modelSuggestions"></datalist>
+      <div id="modelTokens"></div>
+    </div>
+  </div>
+
+  <!-- Report tabs -->
+  <div class="section" id="reportsSection" style="display:none;">
+    <h2>Reports</h2>
+    <!-- Export buttons allow the user to download the current reports as Excel files.  
+         Two variants are offered for each report where appropriate.  Last ASP can be
+         exported as a single sheet combining all countries or as multiple sheets
+         split by country.  Sales by model can be exported either with hierarchical
+         indentation or flattened into a simple list.  Raw data is exported as
+         displayed. -->
+    <div class="chip-group" id="exportButtons" style="margin-bottom:1em;">
+      <button id="exportLastAsp">Export Last ASP (Combined)</button>
+      <button id="exportLastAspSplit">Export Last ASP (Split)</button>
+      <button id="exportSalesModelIndented">Export Sales by Model (Indented)</button>
+      <button id="exportSalesModelFlat">Export Sales by Model (Flat)</button>
+      <button id="exportRaw">Export Raw Data</button>
+    </div>
+    <div class="tabs">
+      <button id="tabLastAsp" class="active" data-target="lastAspContent">Last ASP</button>
+      <button id="tabSalesModel" data-target="salesModelContent">Sales by Model</button>
+      <button id="tabRawData" data-target="rawDataContent">Raw Data</button>
+    </div>
+    <div id="lastAspContent" class="tab-content active"></div>
+    <div id="salesModelContent" class="tab-content"></div>
+    <div id="rawDataContent" class="tab-content"></div>
+  </div>
+
+  <script>
+  // ============================
+  // Exchange rates
+  //
+  // Hard coded mid‑market rates (16 Oct 2025) for converting the
+  // currency found in the sales file into USD.  Values represent
+  // the USD equivalent of one unit of the foreign currency.  If more
+  // recent rates are required simply update the numbers below.
+  const exchangeRates = {
+    USD: 1.0,
+    AUD: 0.6500,      // 1 AUD ≈ 0.65 USD (1 USD ≈ 1.538 AUD)
+    EUR: 1.1628,      // 1 EUR ≈ 1.1628 USD (1 USD ≈ 0.86 EUR)
+    AED: 0.2723,      // 1 AED ≈ 0.2723 USD (1 USD ≈ 3.673 AED)
+    GBP: 1.3514,      // 1 GBP ≈ 1.3514 USD (1 USD ≈ 0.74 GBP)
+    JPY: 0.00661,     // 1 JPY ≈ 0.00661 USD (1 USD ≈ 151.22 JPY)
+    CAD: 0.7143       // 1 CAD ≈ 0.7143 USD (1 USD ≈ 1.40 CAD)
+  };
+
+  // Category code lookup table.  The first segment of the SKU
+  // identifies a high level product category.
+  const categoryLookup = {
+    AC: 'Accessories',
+    EP: 'Environment Products',
+    CP: 'Computers',
+    LP: 'Laptops',
+    PH: 'Smartphones',
+    WB: 'Wearables',
+    TB: 'Tablets'
+  };
+
+  // Global variables to hold the loaded data.  rawData is the
+  // processed list of sale records ready for filtering.  nameMap holds
+  // pricing_sku → English name mappings loaded from the second file.
+  let rawData = [];
+  let nameMap = {};
+  let modelSuggestions = [];
+  // Hold the currently filtered rows for export
+  let currentFiltered = [];
+  // Flag indicating whether the Sales by Model report needs to be rebuilt.
+  let salesReportDirty = false;
+  // Cached filtered data for rebuilding the Sales by Model report lazily.
+  let cachedSalesFilter = [];
+  // The latest CreatedAt date across all processed rows.  This is
+  // computed during prepareData and used as the reference point for
+  // relative date ranges (e.g. “last 2 days”).
+  let maxDateGlobal = null;
+
+  /**
+   * Get a string representing the current date (or the latest date in
+   * the data) in YYYYMMDD format.  Used for naming exported files.
+   */
+  function getCurrentDateString() {
+    const refDate = maxDateGlobal ? new Date(maxDateGlobal) : new Date();
+    const yyyy = refDate.getFullYear();
+    const mm = String(refDate.getMonth() + 1).padStart(2, '0');
+    const dd = String(refDate.getDate()).padStart(2, '0');
+    return `${yyyy}${mm}${dd}`;
+  }
+
+  /**
+   * Get a label representing the selected date range for export file
+   * names.  Returns strings like '2D', '7D', '1M', '3M' or 'ALL'.
+   */
+  function getDateRangeLabel() {
+    const dr = filterState.dateRange;
+    if (dr === '2') return '2D';
+    if (dr === '7') return '7D';
+    if (dr === '30') return '1M';
+    if (dr === '90') return '3M';
+    return 'ALL';
+  }
+
+  /**
+   * Populate the currency input fields using the current exchangeRates.
+   * This function creates an input box for each currency allowing the
+   * user to override the USD equivalent.  It should be called once
+   * after the page loads and whenever the list of currencies changes.
+   */
+  function initCurrencyInputs() {
+    const container = document.getElementById('currencyInputs');
+    container.innerHTML = '';
+    Object.keys(exchangeRates).forEach(curr => {
+      const wrapper = document.createElement('div');
+      wrapper.style.display = 'flex';
+      wrapper.style.alignItems = 'center';
+      wrapper.style.gap = '0.3em';
+      const label = document.createElement('label');
+      label.textContent = curr + ':';
+      label.setAttribute('for', 'rate_' + curr);
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.step = '0.0001';
+      input.min = '0';
+      input.id = 'rate_' + curr;
+      input.style.width = '6em';
+      input.value = exchangeRates[curr];
+      wrapper.appendChild(label);
+      wrapper.appendChild(input);
+      container.appendChild(wrapper);
+    });
+  }
+
+  // Initialize currency inputs on page load
+  initCurrencyInputs();
+
+  // Update rates button handler.  Reads values from the input fields
+  // and updates the exchangeRates object.  If rawData has been
+  // processed already this also recomputes perUnitUsd for every
+  // record and refreshes the current filtered results.
+  document.getElementById('updateRates').addEventListener('click', () => {
+    const inputs = document.querySelectorAll('#currencyInputs input');
+    inputs.forEach(inp => {
+      const curr = inp.id.replace('rate_', '');
+      const val = parseFloat(inp.value);
+      if (!isNaN(val) && val > 0) {
+        exchangeRates[curr] = val;
+      }
+    });
+    // If data already processed, recompute perUnitUsd for rawData
+    if (rawData.length > 0) {
+      rawData.forEach(item => {
+        const rate = exchangeRates[item.Currency] || 1;
+        item.perUnitUsd = (item.Total / item.Quantity) * rate;
+      });
+      applyFilters();
+    }
+    alert('Exchange rates updated.');
+  });
+
+  // State for the filters
+  const filterState = {
+    dateRange: 'all',    // values: number of days or 'all'
+    categories: ['All'], // array of selected category names; 'All' implies all
+    countries: ['All'],  // array of selected country names; populated after processing
+    priceLock: 'all',    // 'all', 'exclude', or 'only'
+    tokens: []           // array of model search tokens
+  };
+
+  // File input event handlers
+  document.getElementById('salesFile').addEventListener('change', handleSalesFile, false);
+  document.getElementById('nameFile').addEventListener('change', handleNameFile, false);
+
+  // Process button event handler – only enabled after the sales file
+  // has been selected.  When clicked this triggers the data
+  // transformation and enables the filters and reports.  Without this
+  // explicit action the application will not start processing,
+  // preventing the UI from freezing on large datasets.
+  document.getElementById('processButton').addEventListener('click', () => {
+    prepareData();
+  });
+
+    /**
+     * Read the namematchingsku file.  The file maps each full 29‑character
+     * SKU (without grade) to a human friendly English model name.  In
+     * earlier versions the "pricing_sku" column (first four segments)
+     * was used for lookup, but this proved too coarse for certain
+     * categories.  The updated approach takes the first 29 characters
+     * of the SKU and looks up that exact string.  The expected file
+     * therefore contains a column labelled "sku" with values like
+     * "PH-AP-IPX000-ATT-064-SG-A1865" and a corresponding column
+     * labelled "en_name" (or similar) that contains the model
+     * description.  If no file is provided the code will fall back
+     * to using the base29 substring as the name.
+     */
+    function handleNameFile(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
+        const json = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+        nameMap = {};
+        json.forEach(row => {
+          // Use the 29‑character SKU as the key.  If a longer SKU is
+          // present we trim it to 29 characters; if shorter we take the
+          // whole string.  Trim whitespace for consistency.
+          let rawKey = String(row['sku'] || row['SKU'] || row['Sku']).trim();
+          if (rawKey) {
+            const key = rawKey.substring(0, 29);
+            // Determine the English name from any of the possible columns
+            const value = String(row['en_name'] || row['En_Name'] || row['EN Name'] || row['en name'] || row['EnglishName'] || row['en_name.1'] || row['en_name ']).trim();
+            if (value) {
+              nameMap[key] = value;
+            }
+          }
+        });
+        document.getElementById('fileStatus').textContent = 'Name matching file loaded.';
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+  /**
+   * Read the sales line item file.  This function parses the Excel
+   * workbook client side via the SheetJS library.  Only the sheet
+   * named "sales_line_item_detail" is used.  After parsing the raw
+   * rows are stored in an intermediate array; once both files are
+   * loaded the prepareData function will construct the processed
+   * dataset used by the filters.
+   */
+  function handleSalesFile(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const data = new Uint8Array(e.target.result);
+      const workbook = XLSX.read(data, { type: 'array' });
+      const sheet = workbook.Sheets['sales_line_item_detail'] || workbook.Sheets[workbook.SheetNames[0]];
+      const json = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+      // Store the raw imported rows.  We do not process immediately;
+      // instead the user must click the “Process Data” button.  This
+      // allows both files to be loaded first and avoids long running
+      // blocking operations on file load.
+      rawData = json;
+      document.getElementById('fileStatus').textContent = 'Sales file loaded. Click "Process Data" to continue.';
+      // Enable the process button when at least the sales file is present
+      document.getElementById('processButton').disabled = false;
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  /**
+   * Prepare the processed dataset and user interface.  This function
+   * transforms each raw row into a more convenient object and
+   * populates suggestion lists.  It is called whenever the sales
+   * data or the name mapping changes.  Once processing completes the
+   * filter and report sections are revealed.
+   */
+  function prepareData() {
+    if (rawData.length === 0) return;
+    const processed = [];
+    const suggestionsSet = new Set();
+    rawData.forEach((row, idx) => {
+      try {
+        // Skip rows that are cancelled or still submitted
+        const status = String(row['OrderStatus'] || '').trim();
+        if (status === 'Cancelled' || status === 'Order Submitted') return;
+        const saleType = String(row['SaleType'] || '').trim();
+        // Parse date – Excel dates may be numbers or strings.  SheetJS
+        // already converts into JavaScript Date objects when
+        // possible; otherwise we attempt to parse.
+        let dateVal = row['CreatedAt'];
+        let createdAt;
+        if (dateVal instanceof Date) {
+          createdAt = dateVal;
+        } else if (typeof dateVal === 'number') {
+          const parsed = XLSX.SSF.parse_date_code(dateVal);
+          createdAt = new Date(Date.UTC(parsed.y, parsed.m - 1, parsed.d));
+        } else {
+          createdAt = new Date(dateVal);
+        }
+        if (!(createdAt instanceof Date) || isNaN(createdAt)) return;
+        // Compute per unit price and convert to USD.  If quantity is
+        // missing or zero we skip this row to avoid division errors.
+        const quantity = parseFloat(row['Quantity'] || row['Qty'] || 0);
+        if (!quantity || quantity <= 0) return;
+        const total = parseFloat(row['Total'] || row['TotalAmt'] || 0);
+        if (isNaN(total)) return;
+        const currency = String(row['Currency'] || 'USD').trim() || 'USD';
+        const rate = exchangeRates[currency] || 1;
+        const perUnit = total / quantity;
+        const perUnitUsd = perUnit * rate;
+        // Extract SKU and derive base model key and grade.
+        // We take the first 29 characters of the full SKU as the
+        // "base" key (without the grade).  This string is used to
+        // look up the human friendly model name in nameMap.  Any
+        // remaining characters after the 29th are treated as the
+        // grade; leading dashes are stripped.  For example,
+        // AC-AP-SKP105-AXA-KEY-BK-MX3L2-N → base29 =
+        // "AC-AP-SKP105-AXA-KEY-BK-MX3L2", grade = "N".
+        const sku = String(row['SKU'] || '').trim();
+        // Derive category from the first dash separated segment
+        const categoryCode = sku.split('-')[0] || '';
+        const categoryName = categoryLookup[categoryCode] || categoryCode || 'Unknown';
+        const base29 = sku.substring(0, 29);
+        let gradePart = '';
+        if (sku.length > 29) {
+          gradePart = sku.substring(29);
+        }
+        // Remove any leading dashes from the grade
+        const grade = gradePart.replace(/^[-]+/, '');
+        const baseName = nameMap[base29] || base29;
+        const modelName = baseName;
+        const modelGrade = grade ? (baseName + '-' + grade) : baseName;
+        suggestionsSet.add(modelName);
+        const company = row['CompanyName'] || row['Company'] || '';
+        // Skip unwanted companies
+        const companyLower = String(company).toLowerCase();
+        if (companyLower === 'dummy phone store'.toLowerCase() || companyLower === 'alchemy staff account'.toLowerCase()) {
+          return;
+        }
+        processed.push({
+          ID: row['ID'],
+          CreatedAt: createdAt,
+          CompanyName: company,
+          SKU: sku,
+          Quantity: quantity,
+          Total: total,
+          Currency: currency,
+          OrderStatus: status,
+          Country: row['Country'] || row['Location'],
+          SaleType: saleType,
+          perUnitUsd: perUnitUsd,
+          categoryName: categoryName,
+          pricingSku: base29,
+          modelName: modelName,
+          modelGrade: modelGrade
+        });
+      } catch (err) {
+        // Catch any unexpected parsing errors to avoid breaking the loop
+        console.error('Error processing row', idx, err);
+      }
+    });
+    // Replace the global rawData with the processed version
+    rawData = processed;
+    // Compute the maximum date for relative range calculations
+    maxDateGlobal = null;
+    processed.forEach(item => {
+      if (!maxDateGlobal || item.CreatedAt > maxDateGlobal) {
+        maxDateGlobal = new Date(item.CreatedAt.getTime());
+      }
+    });
+    // Build model suggestions list
+    modelSuggestions = Array.from(suggestionsSet).sort();
+    populateModelSuggestions();
+    // Build country chips based on unique country values in the processed dataset.
+    const countrySet = new Set();
+    processed.forEach(item => {
+      const country = item.Country || 'Unknown';
+      if (country) countrySet.add(country);
+    });
+    buildCountryChips(Array.from(countrySet).sort());
+    // Show filters and reports sections
+    document.getElementById('filtersSection').style.display = '';
+    document.getElementById('reportsSection').style.display = '';
+    // Apply current filters to render initial reports
+    applyFilters();
+  }
+
+  /**
+   * Populate the datalist element for model suggestions.  This
+   * function is called once after the data is prepared.
+   */
+  function populateModelSuggestions() {
+    const dataList = document.getElementById('modelSuggestions');
+    dataList.innerHTML = '';
+    modelSuggestions.forEach(name => {
+      const option = document.createElement('option');
+      option.value = name;
+      dataList.appendChild(option);
+    });
+  }
+
+  /**
+   * Populate the country chips dynamically based on the set of
+   * countries present in the dataset.  Multiple countries may be
+   * selected simultaneously.  Selecting 'All' clears any other
+   * selections.  This function also attaches a click handler on
+   * countryChips if it has not been attached already.
+   */
+  function buildCountryChips(countryList) {
+    const container = document.getElementById('countryChips');
+    // Clear existing contents
+    container.innerHTML = '';
+    // Always add the 'All' chip first
+    const allBtn = document.createElement('button');
+    allBtn.setAttribute('data-value', 'All');
+    allBtn.classList.add('active');
+    allBtn.textContent = 'All';
+    container.appendChild(allBtn);
+    // Add chips for each country
+    countryList.forEach(c => {
+      const btn = document.createElement('button');
+      btn.setAttribute('data-value', c);
+      btn.textContent = c;
+      container.appendChild(btn);
+    });
+    // Initialize filter state
+    filterState.countries = ['All'];
+    // Attach the event handler once
+    if (!container.dataset.initialized) {
+      container.addEventListener('click', (e) => {
+        if (e.target.tagName === 'BUTTON') {
+          const value = e.target.getAttribute('data-value');
+          const isActive = e.target.classList.contains('active');
+          if (value === 'All') {
+            if (!isActive) {
+              // Clear other selections and select 'All'
+              Array.from(container.children).forEach(btn => btn.classList.remove('active'));
+              e.target.classList.add('active');
+              filterState.countries = ['All'];
+              applyFilters();
+            }
+            return;
+          }
+          if (isActive) {
+            // Deselect
+            e.target.classList.remove('active');
+            filterState.countries = filterState.countries.filter(cn => cn !== value);
+            if (filterState.countries.length === 0) {
+              // If nothing selected, revert to 'All'
+              filterState.countries = ['All'];
+              Array.from(container.children).forEach(btn => {
+                if (btn.getAttribute('data-value') === 'All') btn.classList.add('active');
+              });
+            }
+          } else {
+            // Select
+            e.target.classList.add('active');
+            // Remove 'All'
+            filterState.countries = filterState.countries.filter(cn => cn !== 'All');
+            filterState.countries.push(value);
+            // Deactivate 'All' button
+            Array.from(container.children).forEach(btn => {
+              if (btn.getAttribute('data-value') === 'All') btn.classList.remove('active');
+            });
+          }
+          applyFilters();
+        }
+      });
+      container.dataset.initialized = 'true';
+    }
+  }
+
+  // ----- Filter chip handlers -----
+  document.getElementById('dateChips').addEventListener('click', (e) => {
+    if (e.target.tagName === 'BUTTON') {
+      setActiveChip(e.target, 'dateChips');
+      filterState.dateRange = e.target.getAttribute('data-value');
+      applyFilters();
+    }
+  });
+  // Category chip multi-select handler
+  document.getElementById('categoryChips').addEventListener('click', (e) => {
+    if (e.target.tagName === 'BUTTON') {
+      const value = e.target.getAttribute('data-value');
+      const isActive = e.target.classList.contains('active');
+      if (value === 'All') {
+        // Selecting 'All' clears other selections
+        if (!isActive) {
+          // Clear all and set 'All'
+          Array.from(document.getElementById('categoryChips').children).forEach(btn => btn.classList.remove('active'));
+          e.target.classList.add('active');
+          filterState.categories = ['All'];
+          applyFilters();
+        }
+        return;
+      }
+      // Toggle the clicked category
+      if (isActive) {
+          e.target.classList.remove('active');
+          // Remove from array
+          filterState.categories = filterState.categories.filter(c => c !== value);
+          // If none selected, revert to 'All'
+          if (filterState.categories.length === 0) {
+            filterState.categories = ['All'];
+            // Activate the 'All' button
+            Array.from(document.getElementById('categoryChips').children).forEach(btn => {
+              if (btn.getAttribute('data-value') === 'All') btn.classList.add('active');
+            });
+          }
+      } else {
+          // Add the category
+          e.target.classList.add('active');
+          // Remove 'All' if present
+          filterState.categories = filterState.categories.filter(c => c !== 'All');
+          filterState.categories.push(value);
+          // Deactivate the 'All' button
+          Array.from(document.getElementById('categoryChips').children).forEach(btn => {
+            if (btn.getAttribute('data-value') === 'All') btn.classList.remove('active');
+          });
+      }
+      applyFilters();
+    }
+  });
+  // Price lock single-select handler
+  document.getElementById('priceChips').addEventListener('click', (e) => {
+    if (e.target.tagName === 'BUTTON') {
+      setActiveChip(e.target, 'priceChips');
+      filterState.priceLock = e.target.getAttribute('data-value');
+      applyFilters();
+    }
+  });
+
+  /**
+   * Utility to toggle the active state on a chip within a group and
+   * remove it from its siblings.
+   */
+  function setActiveChip(button, groupId) {
+    const group = document.getElementById(groupId);
+    Array.from(group.children).forEach(btn => btn.classList.remove('active'));
+    button.classList.add('active');
+  }
+
+  // ----- Model search token handling -----
+  const modelInput = document.getElementById('modelInput');
+  const modelTokensDiv = document.getElementById('modelTokens');
+  modelInput.addEventListener('keydown', (e) => {
+    // When the user presses Enter or comma we capture the current value
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault();
+      const value = modelInput.value.trim();
+      addToken(value);
+      modelInput.value = '';
+    }
+  });
+  modelInput.addEventListener('blur', () => {
+    // On blur capture any remaining text
+    const value = modelInput.value.trim();
+    addToken(value);
+    modelInput.value = '';
+  });
+  /**
+   * Add a token to the search list if it is non‑empty and not a
+   * duplicate.  This also triggers a filter refresh.
+   */
+  function addToken(value) {
+    if (!value) return;
+    // Normalize spaces and convert to lowercase for matching
+    const normalized = value.toLowerCase();
+    if (!filterState.tokens.some(t => t.toLowerCase() === normalized)) {
+      filterState.tokens.push(value);
+      renderTokens();
+      applyFilters();
+    }
+  }
+  /**
+   * Render the token chips visually in the UI.
+   */
+  function renderTokens() {
+    modelTokensDiv.innerHTML = '';
+    filterState.tokens.forEach((token, idx) => {
+      const div = document.createElement('div');
+      div.className = 'token';
+      const span = document.createElement('span');
+      span.textContent = token;
+      div.appendChild(span);
+      const remove = document.createElement('span');
+      remove.className = 'remove';
+      remove.textContent = '×';
+      remove.setAttribute('data-idx', idx);
+      remove.addEventListener('click', (e) => {
+        const index = parseInt(e.target.getAttribute('data-idx'), 10);
+        filterState.tokens.splice(index, 1);
+        renderTokens();
+        applyFilters();
+      });
+      div.appendChild(remove);
+      modelTokensDiv.appendChild(div);
+    });
+  }
+
+  /**
+   * Apply all active filters to the processed dataset.  After
+   * filtering the three report sections are rebuilt.  Because the
+   * dataset can be large this function avoids expensive DOM
+   * operations where possible.  In particular we build the output
+   * tables as HTML strings and assign them in a single operation.
+   */
+  function applyFilters() {
+    if (!rawData || rawData.length === 0) return;
+    // Use the maximum CreatedAt date from the dataset as the
+    // reference “today”.  This ensures that “Last 2 Days” covers the
+    // two most recent days in the data rather than the user’s current
+    // clock, which may fall outside of the dataset range.
+    const now = maxDateGlobal ? new Date(maxDateGlobal.getFullYear(), maxDateGlobal.getMonth(), maxDateGlobal.getDate()) : new Date();
+    // Compute the earliest allowed date based on the selected range
+    let minDate = null;
+    if (filterState.dateRange !== 'all') {
+      const days = parseInt(filterState.dateRange, 10);
+      minDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      // Subtract (days-1) because “Last 2 days” includes today and
+      // yesterday, so days = 2 → subtract 1 day to get start of
+      // yesterday.  For 7 days we go back 6 days, etc.
+      minDate.setDate(minDate.getDate() - (days - 1));
+    }
+    // Precompute lowercase tokens for case‑insensitive matching
+    const loweredTokens = filterState.tokens.map(t => t.toLowerCase());
+    const filtered = rawData.filter(item => {
+      // Date filter
+      if (minDate && item.CreatedAt < minDate) return false;
+      // Category filter – if categories include 'All' then include all
+      if (!(filterState.categories && filterState.categories.includes('All'))) {
+        if (!filterState.categories.includes(item.categoryName)) return false;
+      }
+      // Country filter – if countries include 'All' then include all
+      if (!(filterState.countries && filterState.countries.includes('All'))) {
+        if (!filterState.countries.includes(item.Country || 'Unknown')) return false;
+      }
+      // Price lock filter
+      const isPriceLock = item.SaleType === 'Pre-Order';
+      if (filterState.priceLock === 'exclude' && isPriceLock) return false;
+      if (filterState.priceLock === 'only' && !isPriceLock) return false;
+      // Token search (OR): if tokens list not empty item.modelName must
+      // contain at least one token substring (case insensitive)
+      if (loweredTokens.length > 0) {
+        const nameLower = item.modelName.toLowerCase();
+        let match = false;
+        for (const token of loweredTokens) {
+          if (nameLower.includes(token)) {
+            match = true;
+            break;
+          }
+        }
+        if (!match) return false;
+      }
+      return true;
+    });
+    // Store the filtered rows for export
+    currentFiltered = filtered;
+    // Build Last ASP and Raw Data reports immediately
+    buildLastAspReport(filtered);
+    buildRawDataReport(filtered);
+    // Determine which main tab is active.  Only build the Sales by
+    // Model report if the user is currently viewing that tab.  This
+    // improves responsiveness by avoiding heavy DOM work when the
+    // report is not visible.  Otherwise mark it dirty and cache the
+    // data for later.
+    const activeTabBtn = document.querySelector('.tabs button.active');
+    const activeTarget = activeTabBtn ? activeTabBtn.getAttribute('data-target') : null;
+    if (activeTarget === 'salesModelContent') {
+      buildSalesByModelReport(filtered);
+      salesReportDirty = false;
+    } else {
+      // Cache the dataset and mark dirty
+      cachedSalesFilter = filtered;
+      salesReportDirty = true;
+    }
+  }
+
+  /**
+   * Construct the Last ASP report.  For each country and model grade
+   * we find the most recently sold row (by CreatedAt) and display
+   * the model grade, per‑unit price in USD and the associated
+   * company.  Results are grouped into separate tables per country
+   * using simple headings.
+   */
+  function buildLastAspReport(filtered) {
+    const container = document.getElementById('lastAspContent');
+    if (filtered.length === 0) {
+      container.innerHTML = '<p>No results for the selected filters.</p>';
+      return;
+    }
+    // Group rows by country and model grade
+    const groups = {};
+    filtered.forEach(item => {
+      const country = item.Country || 'Unknown';
+      const key = country;
+      if (!groups[key]) groups[key] = {};
+      const mg = item.modelGrade;
+      // If this model grade hasn’t been seen in this country or if
+      // this row is more recent, store it.
+      const existing = groups[key][mg];
+      if (!existing || item.CreatedAt > existing.CreatedAt) {
+        groups[key][mg] = item;
+      }
+    });
+    // Build HTML for each country table
+    let html = '';
+    const countries = Object.keys(groups).sort();
+    countries.forEach(country => {
+      html += `<h3>${country}</h3>`;
+      html += '<table><thead><tr><th>Model Grade</th><th>Last ASP (USD)</th><th>Company</th><th>Date</th></tr></thead><tbody>';
+      const entries = Object.values(groups[country]);
+      // Sort by model grade for consistency
+      entries.sort((a,b) => a.modelGrade.localeCompare(b.modelGrade));
+      entries.forEach(entry => {
+        html += '<tr>' +
+          `<td>${escapeHtml(entry.modelGrade)}</td>` +
+          `<td>${entry.perUnitUsd.toFixed(2)}</td>` +
+          `<td>${escapeHtml(entry.CompanyName || '')}</td>` +
+          `<td>${entry.CreatedAt.toISOString().split('T')[0]}</td>` +
+          '</tr>';
+      });
+      html += '</tbody></table>';
+    });
+    container.innerHTML = html;
+  }
+
+  /**
+   * Construct the Sales by model grade report.  Rows are grouped by
+   * model grade; within each group we list every sale with date,
+   * selling price and quantity.  The first row for each group shows
+   * the model grade and uses a rowspan to span the remaining rows of
+   * that group.
+   */
+  function buildSalesByModelReport(filtered) {
+    const container = document.getElementById('salesModelContent');
+    if (filtered.length === 0) {
+      container.innerHTML = '<p>No results for the selected filters.</p>';
+      return;
+    }
+    // Group rows by country first
+    const countryGroups = {};
+    filtered.forEach(item => {
+      const c = item.Country || 'Unknown';
+      if (!countryGroups[c]) countryGroups[c] = [];
+      countryGroups[c].push(item);
+    });
+    const countries = Object.keys(countryGroups).sort();
+    // Build country tabs and tables
+    let html = '';
+    // Tabs for countries
+    html += '<div class="country-tabs">';
+    countries.forEach((c, idx) => {
+      const slug = slugify(c);
+      const active = idx === 0 ? ' active' : '';
+      html += `<button class="${active}" data-country="${slug}">${escapeHtml(c)}</button>`;
+    });
+    html += '</div>';
+    // Build a table for each country
+    countries.forEach((c, idx) => {
+      const itemsInCountry = countryGroups[c];
+      // Group by model grade within this country
+      const gradeMap = {};
+      itemsInCountry.forEach(item => {
+        const mg = item.modelGrade;
+        if (!gradeMap[mg]) gradeMap[mg] = [];
+        gradeMap[mg].push(item);
+      });
+      const gradeKeys = Object.keys(gradeMap).sort();
+      const slug = slugify(c);
+      // Country table container; hide all except first
+      html += `<div class="country-table" data-country="${slug}" style="${idx === 0 ? '' : 'display:none;'}">`;
+      // Build a table without a header row for hierarchical display
+      html += '<table><tbody>';
+      gradeKeys.forEach(mg => {
+        const items = gradeMap[mg];
+        // Sort by date descending
+        items.sort((a,b) => b.CreatedAt - a.CreatedAt);
+        // Row for model grade (span across all detail columns).  We use
+        // colspan=4 because the detail rows have four columns (Date,
+        // Price, Quantity, Company).  Using the same column count
+        // prevents misalignment between the summary row and the detail
+        // rows.
+        html += `<tr class="model-grade-row"><td colspan="4"><strong>${escapeHtml(mg)}</strong></td></tr>`;
+        // Rows for each sale with indent on first column
+        items.forEach(item => {
+          html += '<tr class="sale-row">';
+          html += `<td style="padding-left:1em;">${item.CreatedAt.toISOString().split('T')[0]}</td>`;
+          html += `<td>${item.perUnitUsd.toFixed(2)}</td>`;
+          html += `<td>${item.Quantity}</td>`;
+          html += `<td>${escapeHtml(item.CompanyName || '')}</td>`;
+          html += '</tr>';
+        });
+      });
+      html += '</tbody></table></div>';
+    });
+    container.innerHTML = html;
+    // Attach event listeners to country tab buttons
+    const tabContainer = container.querySelector('.country-tabs');
+    if (tabContainer) {
+      const buttons = tabContainer.querySelectorAll('button');
+      buttons.forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const slug = btn.getAttribute('data-country');
+          // Toggle active class
+          buttons.forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          // Show the selected country table, hide others
+          const tables = container.querySelectorAll('.country-table');
+          tables.forEach(tbl => {
+            if (tbl.getAttribute('data-country') === slug) {
+              tbl.style.display = '';
+            } else {
+              tbl.style.display = 'none';
+            }
+          });
+        });
+      });
+    }
+  }
+
+  /**
+   * Construct the raw data report.  This table simply shows every
+   * column from the processed dataset for the filtered rows.  We
+   * include additional computed fields (perUnitUsd, categoryName,
+   * modelName, modelGrade) for completeness.  If this output is too
+   * wide for the page the user can copy/paste it into a spreadsheet.
+   */
+  function buildRawDataReport(filtered) {
+    const container = document.getElementById('rawDataContent');
+    if (filtered.length === 0) {
+      container.innerHTML = '<p>No results for the selected filters.</p>';
+      return;
+    }
+    // Determine columns dynamically from the first row
+    const cols = Object.keys(filtered[0]);
+    let html = '<div style="overflow-x:auto;">';
+    html += '<table><thead><tr>';
+    cols.forEach(col => {
+      html += `<th>${escapeHtml(col)}</th>`;
+    });
+    html += '</tr></thead><tbody>';
+    filtered.forEach(item => {
+      html += '<tr>';
+      cols.forEach(col => {
+        let val = item[col];
+        if (col === 'CreatedAt' && val instanceof Date) {
+          val = val.toISOString().split('T')[0];
+        } else if (col === 'perUnitUsd') {
+          val = val.toFixed(2);
+        }
+        html += `<td>${escapeHtml(String(val))}</td>`;
+      });
+      html += '</tr>';
+    });
+    html += '</tbody></table></div>';
+    container.innerHTML = html;
+  }
+
+  /**
+   * Escape HTML special characters to prevent injection attacks and
+   * ensure that user supplied content (e.g. company names) is safely
+   * inserted into the DOM.  This helper converts &, <, >, ", ' and /
+   * into their corresponding HTML entities.
+   */
+  function escapeHtml(unsafe) {
+    return unsafe
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  /**
+   * Create a slug from a string that can be used in IDs and data attributes.
+   * Converts to lower case and replaces non‑alphanumeric characters with
+   * hyphens.  Useful for country names that may contain spaces or
+   * punctuation.
+   */
+  function slugify(str) {
+    return String(str)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+  }
+
+  // ----- Export helpers -----
+  /**
+   * Convert the current filtered dataset into an array for the Last ASP report.
+   * Each object has keys: Country, ModelGrade, LastASP_USD, Company, Date.
+   */
+  function getLastAspArray(filtered) {
+    // Group by country and model grade, pick the row with latest date
+    const groups = {};
+    filtered.forEach(item => {
+      const country = item.Country || 'Unknown';
+      if (!groups[country]) groups[country] = {};
+      const mg = item.modelGrade;
+      const existing = groups[country][mg];
+      if (!existing || item.CreatedAt > existing.CreatedAt) {
+        groups[country][mg] = item;
+      }
+    });
+    const result = [];
+    Object.keys(groups).forEach(country => {
+      Object.values(groups[country]).forEach(item => {
+        result.push({
+          Country: country,
+          ModelGrade: item.modelGrade,
+          LastASP_USD: item.perUnitUsd.toFixed(2),
+          Company: item.CompanyName || '',
+          Date: item.CreatedAt.toISOString().split('T')[0]
+        });
+      });
+    });
+    return result;
+  }
+
+  /**
+   * Build a dictionary of arrays keyed by country for the Last ASP
+   * report.  Each key corresponds to a country and its value is an
+   * array of rows containing model grade, last ASP, company and date.
+   * This structure is used to create a workbook with one sheet per
+   * country when exporting a split Last ASP report.
+   *
+   * @param {Array} filtered The filtered raw data records
+   * @returns {Object} An object keyed by country name containing
+   *   arrays of row objects suitable for XLSX.utils.json_to_sheet
+   */
+  function getLastAspByCountryArrays(filtered) {
+    const groups = {};
+    // Determine the last sale per model grade within each country
+    filtered.forEach(item => {
+      const country = item.Country || 'Unknown';
+      if (!groups[country]) groups[country] = {};
+      const mg = item.modelGrade;
+      const existing = groups[country][mg];
+      if (!existing || item.CreatedAt > existing.CreatedAt) {
+        groups[country][mg] = item;
+      }
+    });
+    const result = {};
+    Object.keys(groups).forEach(country => {
+      result[country] = [];
+      Object.values(groups[country]).forEach(item => {
+        result[country].push({
+          ModelGrade: item.modelGrade,
+          LastASP_USD: item.perUnitUsd.toFixed(2),
+          Company: item.CompanyName || '',
+          Date: item.CreatedAt.toISOString().split('T')[0]
+        });
+      });
+    });
+    return result;
+  }
+
+  /**
+   * Convert the current filtered dataset into a flat array for the Sales by
+   * Model report.  Each record includes the country, model grade, date,
+   * per‑unit price, quantity and company.  The records are sorted by
+   * country, model grade and date descending.
+   *
+   * This format is useful for exporting a non‑indented list of sales
+   * where each sale appears as its own row.
+   *
+   * @param {Array} filtered The filtered raw data records
+   * @returns {Array} A flat array of objects
+   */
+  function getSalesModelFlatArray(filtered) {
+    const rows = [];
+    // Sort by country, model grade, CreatedAt descending
+    const sorted = filtered.slice().sort((a, b) => {
+      // Country
+      const c1 = (a.Country || 'Unknown').localeCompare(b.Country || 'Unknown');
+      if (c1 !== 0) return c1;
+      // Model grade
+      const m = a.modelGrade.localeCompare(b.modelGrade);
+      if (m !== 0) return m;
+      // Date descending
+      return b.CreatedAt - a.CreatedAt;
+    });
+    sorted.forEach(item => {
+      rows.push({
+        Country: item.Country || 'Unknown',
+        ModelGrade: item.modelGrade,
+        Date: item.CreatedAt.toISOString().split('T')[0],
+        SellingPriceUSD: item.perUnitUsd.toFixed(2),
+        Quantity: item.Quantity,
+        Company: item.CompanyName || ''
+      });
+    });
+    return rows;
+  }
+
+  /**
+   * Build flat Sales by Model arrays keyed by country.  Each
+   * array contains rows with Country omitted (since it is implied by
+   * the sheet name) and includes ModelGrade, Date, SellingPriceUSD,
+   * Quantity and Company.  Data is sorted by model grade and date
+   * descending.
+   *
+   * @param {Array} filtered The filtered raw data
+   * @returns {Object} A dictionary mapping country names to row arrays
+   */
+  function getSalesModelFlatArraysByCountry(filtered) {
+    const groups = {};
+    filtered.forEach(item => {
+      const country = item.Country || 'Unknown';
+      if (!groups[country]) groups[country] = [];
+      groups[country].push(item);
+    });
+    const result = {};
+    Object.keys(groups).forEach(country => {
+      const items = groups[country];
+      items.sort((a, b) => {
+        const m = a.modelGrade.localeCompare(b.modelGrade);
+        if (m !== 0) return m;
+        return b.CreatedAt - a.CreatedAt;
+      });
+      const rows = [];
+      items.forEach(item => {
+        rows.push({
+          ModelGrade: item.modelGrade,
+          Date: item.CreatedAt.toISOString().split('T')[0],
+          SellingPriceUSD: item.perUnitUsd.toFixed(2),
+          Quantity: item.Quantity,
+          Company: item.CompanyName || ''
+        });
+      });
+      result[country] = rows;
+    });
+    return result;
+  }
+
+  /**
+   * Build a dictionary of indented Sales by Model arrays keyed by country.
+   * Each array follows the same structure as getSalesModelArray: a
+   * summary row with ModelGrade set to the model grade and blank
+   * numeric fields, followed by detail rows where the date is placed
+   * inside the ModelGrade column.  Use this when exporting the
+   * indented report split by country into separate sheets.
+   *
+   * @param {Array} filtered The filtered raw data
+   * @returns {Object} A dictionary mapping country names to arrays of
+   *   rows for that country
+   */
+  function getSalesModelArraysByCountry(filtered) {
+    const result = {};
+    // Group by country and model grade
+    const countryGroups = {};
+    filtered.forEach(item => {
+      const country = item.Country || 'Unknown';
+      if (!countryGroups[country]) countryGroups[country] = {};
+      const mg = item.modelGrade;
+      if (!countryGroups[country][mg]) countryGroups[country][mg] = [];
+      countryGroups[country][mg].push(item);
+    });
+    Object.keys(countryGroups).forEach(country => {
+      const rows = [];
+      const gradeMap = countryGroups[country];
+      Object.keys(gradeMap).sort().forEach(mg => {
+        const items = gradeMap[mg];
+        items.sort((a,b) => b.CreatedAt - a.CreatedAt);
+        // Summary row for this model grade
+        rows.push({
+          ModelGrade: mg,
+          SellingPriceUSD: '',
+          Quantity: '',
+          Company: ''
+        });
+        // Detail rows
+        items.forEach(item => {
+          rows.push({
+            ModelGrade: item.CreatedAt.toISOString().split('T')[0],
+            SellingPriceUSD: item.perUnitUsd.toFixed(2),
+            Quantity: item.Quantity,
+            Company: item.CompanyName || ''
+          });
+        });
+      });
+      result[country] = rows;
+    });
+    return result;
+  }
+
+  /**
+   * Export multiple sheets into one workbook.  Accepts a dictionary
+   * mapping sheet names to row arrays and writes the workbook with
+   * those sheets.  If the dictionary is empty nothing is exported.
+   *
+   * @param {String} filename The base filename (without extension)
+   * @param {Object} sheets An object where each key is a sheet name
+   *   and each value is an array of row objects
+   */
+  function exportMultipleSheets(filename, sheets) {
+    const wb = XLSX.utils.book_new();
+    let hasData = false;
+    Object.keys(sheets).forEach(name => {
+      const arr = sheets[name];
+      if (arr && arr.length > 0) {
+        hasData = true;
+        const ws = XLSX.utils.json_to_sheet(arr);
+        // Compute column widths for this sheet
+        const headers = Object.keys(arr[0] || {});
+        const colWidths = headers.map(h => {
+          let maxLen = String(h).length;
+          arr.forEach(row => {
+            const val = row[h] !== undefined && row[h] !== null ? String(row[h]) : '';
+            if (val.length > maxLen) maxLen = val.length;
+          });
+          const wch = Math.min(Math.max(maxLen + 2, 10), 30);
+          return { wch };
+        });
+        ws['!cols'] = colWidths;
+        // Apply border to every cell
+        const border = {
+          top: { style: 'thin', color: { rgb: '666666' } },
+          bottom: { style: 'thin', color: { rgb: '666666' } },
+          left: { style: 'thin', color: { rgb: '666666' } },
+          right: { style: 'thin', color: { rgb: '666666' } }
+        };
+        Object.keys(ws).forEach(cell => {
+          if (!cell.startsWith('!')) {
+            if (!ws[cell].s) ws[cell].s = {};
+            ws[cell].s.border = border;
+          }
+        });
+        // Use a short sheet name; Excel limits sheet names to 31 chars
+        const sheetName = name.substring(0, 31);
+        XLSX.utils.book_append_sheet(wb, ws, sheetName);
+      }
+    });
+    if (!hasData) {
+      alert('No data to export.');
+      return;
+    }
+    XLSX.writeFile(wb, filename + '.xlsx');
+  }
+
+  /**
+   * Convert the current filtered dataset into an array for the Sales by Model report.
+   */
+  function getSalesModelArray(filtered) {
+    // Build a hierarchical array: for each country and model grade
+    // insert a summary row followed by detail rows.  Summary rows
+    // contain the model grade and country; detail rows leave these
+    // fields blank to indicate indentation.
+    const result = [];
+    // Group by country and model grade.  The exported array does not
+    // include the Country column; instead we assume the caller will
+    // split data by country when necessary.  This ensures the
+    // hierarchical indentation uses only one column (ModelGrade) for
+    // indentation.
+    const countryGroups = {};
+    filtered.forEach(item => {
+      const country = item.Country || 'Unknown';
+      if (!countryGroups[country]) countryGroups[country] = {};
+      const mg = item.modelGrade;
+      if (!countryGroups[country][mg]) countryGroups[country][mg] = [];
+      countryGroups[country][mg].push(item);
+    });
+    const countries = Object.keys(countryGroups).sort();
+    countries.forEach(country => {
+      const gradeMap = countryGroups[country];
+      Object.keys(gradeMap).sort().forEach(mg => {
+        const items = gradeMap[mg];
+        // Sort detail rows by date descending
+        items.sort((a,b) => b.CreatedAt - a.CreatedAt);
+        // Summary row: only ModelGrade specified; blank cells for
+        // subsequent columns.  We omit the Date column entirely and
+        // place the date into the ModelGrade column for detail rows.
+        result.push({
+          ModelGrade: mg,
+          SellingPriceUSD: '',
+          Quantity: '',
+          Company: ''
+        });
+        // Detail rows: indent the date into the ModelGrade column
+        items.forEach(item => {
+          result.push({
+            ModelGrade: item.CreatedAt.toISOString().split('T')[0],
+            SellingPriceUSD: item.perUnitUsd.toFixed(2),
+            Quantity: item.Quantity,
+            Company: item.CompanyName || ''
+          });
+        });
+      });
+    });
+    return result;
+  }
+
+  /**
+   * Convert the current filtered dataset into an array of plain objects for export.
+   */
+  function getRawDataArray(filtered) {
+    return filtered.map(item => {
+      const obj = {};
+      Object.keys(item).forEach(k => {
+        let val = item[k];
+        if (val instanceof Date) {
+          val = val.toISOString().split('T')[0];
+        } else if (typeof val === 'number' && k === 'perUnitUsd') {
+          val = val.toFixed(2);
+        }
+        obj[k] = val;
+      });
+      return obj;
+    });
+  }
+
+  /**
+   * Export a dataset (array of objects) to an XLSX file using SheetJS.
+   */
+  function exportToXLSX(filename, sheetName, dataArray) {
+    if (!dataArray || dataArray.length === 0) {
+      alert('No data to export.');
+      return;
+    }
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(dataArray);
+    // Set column widths based on content.  We compute a width for
+    // each column by finding the maximum string length among header
+    // and data values, clamped to [10, 30].  The unit wch roughly
+    // corresponds to characters.
+    const headers = Object.keys(dataArray[0] || {});
+    const colWidths = headers.map(h => {
+      let maxLen = String(h).length;
+      dataArray.forEach(row => {
+        const val = row[h] !== undefined && row[h] !== null ? String(row[h]) : '';
+        if (val.length > maxLen) maxLen = val.length;
+      });
+      // Add a little padding and clamp width
+      const wch = Math.min(Math.max(maxLen + 2, 10), 30);
+      return { wch };
+    });
+    ws['!cols'] = colWidths;
+    // Apply thin borders to all cells.  Use a grey color for better
+    // contrast on dark backgrounds.
+    const border = {
+      top: { style: 'thin', color: { rgb: '666666' } },
+      bottom: { style: 'thin', color: { rgb: '666666' } },
+      left: { style: 'thin', color: { rgb: '666666' } },
+      right: { style: 'thin', color: { rgb: '666666' } }
+    };
+    Object.keys(ws).forEach(cell => {
+      if (!cell.startsWith('!')) {
+        if (!ws[cell].s) ws[cell].s = {};
+        ws[cell].s.border = border;
+      }
+    });
+    XLSX.utils.book_append_sheet(wb, ws, sheetName.substring(0, 31));
+    XLSX.writeFile(wb, filename + '.xlsx');
+  }
+
+  // Bind export buttons to export functions
+  // Export event listeners.  Each button uses the corresponding
+  // helper to build the dataset and then writes either a single
+  // worksheet or multiple sheets when requested.
+  document.getElementById('exportLastAsp').addEventListener('click', () => {
+    const data = getLastAspArray(currentFiltered);
+    const filename = `last_asp_report_${getCurrentDateString()}_${getDateRangeLabel()}`;
+    exportToXLSX(filename, 'LastASP', data);
+  });
+  document.getElementById('exportLastAspSplit').addEventListener('click', () => {
+    const sheets = getLastAspByCountryArrays(currentFiltered);
+    const filename = `last_asp_split_report_${getCurrentDateString()}_${getDateRangeLabel()}`;
+    exportMultipleSheets(filename, sheets);
+  });
+  document.getElementById('exportSalesModelIndented').addEventListener('click', () => {
+    // Export the indented sales by model report split into separate
+    // sheets by country.  This creates a workbook where each
+    // worksheet corresponds to a country and lists model grades with
+    // indented dates beneath.  Using split sheets avoids mixing
+    // countries in one table and preserves the single indent column.
+    const sheets = getSalesModelArraysByCountry(currentFiltered);
+    const filename = `sales_by_model_indented_${getCurrentDateString()}_${getDateRangeLabel()}`;
+    exportMultipleSheets(filename, sheets);
+  });
+  document.getElementById('exportSalesModelFlat').addEventListener('click', () => {
+    const sheets = getSalesModelFlatArraysByCountry(currentFiltered);
+    const filename = `sales_by_model_flat_${getCurrentDateString()}_${getDateRangeLabel()}`;
+    exportMultipleSheets(filename, sheets);
+  });
+  document.getElementById('exportRaw').addEventListener('click', () => {
+    const data = getRawDataArray(currentFiltered);
+    const filename = `raw_data_filtered_${getCurrentDateString()}_${getDateRangeLabel()}`;
+    exportToXLSX(filename, 'RawData', data);
+  });
+
+  // ----- Tab navigation -----
+  document.querySelectorAll('.tabs button').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const target = btn.getAttribute('data-target');
+      // Activate selected tab button
+      document.querySelectorAll('.tabs button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      // Show the corresponding content div
+      document.querySelectorAll('.tab-content').forEach(div => div.classList.remove('active'));
+      document.getElementById(target).classList.add('active');
+      // If the user navigates to the Sales by Model tab and the report
+      // is marked dirty, rebuild it now using the cached filtered data.
+      if (target === 'salesModelContent' && salesReportDirty) {
+        buildSalesByModelReport(cachedSalesFilter);
+        salesReportDirty = false;
+      }
+    });
+  });
+  </script>
+</body>
+</html>
