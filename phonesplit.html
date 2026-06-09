@@ -176,6 +176,45 @@
             cursor: not-allowed;
         }
 
+        .filtered-output-section {
+            margin-top: 15px;
+            padding: 15px;
+            border: 2px dashed #f39c12;
+            border-radius: 8px;
+            background: #fff8e8;
+            text-align: center;
+        }
+
+        .filtered-note {
+            font-size: 13px;
+            color: #7a4b00;
+            margin-bottom: 10px;
+            font-weight: bold;
+        }
+
+        .filtered-button-main {
+            background: #f39c12;
+            color: white;
+            padding: 16px 36px;
+            border: none;
+            border-radius: 8px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.3s;
+            width: 100%;
+            max-width: 420px;
+        }
+
+        .filtered-button-main:hover {
+            background: #e67e22;
+        }
+
+        .filtered-button-main:disabled {
+            background: #bdc3c7;
+            cursor: not-allowed;
+        }
+
         .exit-button {
             background: #e74c3c;
             color: white;
@@ -261,6 +300,32 @@
         .excel-note strong {
             color: #27ae60;
         }
+
+        .download-links {
+            margin-top: 15px;
+            padding: 15px;
+            background: #fff7e6;
+            border-radius: 5px;
+            border-left: 4px solid #f39c12;
+            font-size: 14px;
+            color: #2c3e50;
+        }
+
+        .download-link-button {
+            display: inline-block;
+            margin: 8px 8px 0 0;
+            padding: 10px 14px;
+            background: #3498db;
+            color: white;
+            border-radius: 5px;
+            text-decoration: none;
+            font-size: 13px;
+            font-weight: bold;
+        }
+
+        .download-link-button:hover {
+            background: #2980b9;
+        }
     </style>
 </head>
 <body>
@@ -274,6 +339,7 @@
             <strong>✅ Enhanced Version:</strong> This version uses ExcelJS to create Excel files with proper borders, formatting, and styling!
             <br><strong>🇨🇦 NEW:</strong> Now includes Canada (CA) tab support for CA_B2B, CA_B2B_Boxed, and CA_B2B_Boxwd location codes!
             <br><strong>🔧 FIXED:</strong> Floor USD file matching now works correctly with proper column name handling!
+            <br><strong>🧹 NEW:</strong> Normal START PROCESSING outputs the original full XLSX. Use the big orange filtered button below START PROCESSING to output a separate XLSX that removes US/HK iPhone 14 Pro Max E Sim quantities and all US/HK iPhone 12 Pro Max rows.
         </div>
 
         <div class="file-section">
@@ -322,6 +388,13 @@
                     <button class="exit-button" onclick="window.close()">❌ Exit</button>
                 </div>
             </div>
+
+            <div class="filtered-output-section">
+                <div class="filtered-note">Separate button: output the filtered XLSX only</div>
+                <button id="filteredButton" class="filtered-button-main" onclick="startFilteredProcessing()" disabled>
+                    🧹 OUTPUT FILTERED XLSX
+                </button>
+            </div>
         </div>
 
         <div id="status" class="status">
@@ -331,6 +404,8 @@
         <div id="progress" class="progress hidden">
             <div id="progressBar" class="progress-bar"></div>
         </div>
+
+        <div id="downloadLinks" class="download-links hidden"></div>
     </div>
 
     <script>
@@ -482,12 +557,17 @@
 
         function updateProcessButton() {
             const button = document.getElementById('processButton');
-            if (inventoryFile) {
-                button.disabled = false;
-                button.style.background = '#27ae60';
-            } else {
-                button.disabled = true;
-                button.style.background = '#bdc3c7';
+            const filteredButton = document.getElementById('filteredButton');
+            const hasInventory = !!inventoryFile;
+
+            if (button) {
+                button.disabled = !hasInventory;
+                button.style.background = hasInventory ? '#27ae60' : '#bdc3c7';
+            }
+
+            if (filteredButton) {
+                filteredButton.disabled = !hasInventory;
+                filteredButton.style.background = hasInventory ? '#f39c12' : '#bdc3c7';
             }
         }
 
@@ -502,6 +582,30 @@
             const status = document.getElementById('status');
             status.textContent = message;
             status.className = `status ${type}`;
+        }
+
+        function clearManualDownloadLinks() {
+            const box = document.getElementById('downloadLinks');
+            if (!box) return;
+            box.innerHTML = '';
+            box.classList.add('hidden');
+        }
+
+        function showManualDownloadLinks(files) {
+            const box = document.getElementById('downloadLinks');
+            if (!box) return;
+
+            box.innerHTML = '<strong>Manual download backup:</strong> If Chrome blocked one of the automatic downloads, click below:<br>';
+            files.forEach(file => {
+                const url = URL.createObjectURL(file.blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = file.filename;
+                a.className = 'download-link-button';
+                a.textContent = '⬇️ ' + file.filename;
+                box.appendChild(a);
+            });
+            box.classList.remove('hidden');
         }
 
         function showProgress() {
@@ -528,6 +632,7 @@
             
             updateStatus('🚀 Processing files...', 'processing');
             showProgress();
+            clearManualDownloadLinks();
 
             try {
                 // Read inventory file
@@ -603,42 +708,239 @@
                 const vzwInventory = processedData.filter(r => r.location_code === 'HK_HTR_B2B_VZW');
                 const vzwFinalData = calculateUsdPrice(vzwInventory, processedUsdData);
 
-                await createExcelOutputWithBorders(finalData, filename, vzwFinalData);
+                // Normal button output: keep the original output exactly as before.
+                const originalBlob = await createExcelOutputWithBorders(finalData, filename, vzwFinalData);
+                showManualDownloadLinks([
+                    { filename, blob: originalBlob }
+                ]);
                 
-                updateStatus(`🎉 SUCCESS! Output saved: ${filename}`, 'success');
-                alert(`Processing completed successfully!\n\nOutput saved to: ${filename}\n\n✅ This file has proper borders and formatting!\n\n${debugInfo}`);
+                updateStatus(`🎉 SUCCESS! Original output saved: ${filename}`, 'success');
+                alert(`Processing completed successfully!\n\nOutput saved to: ${filename}\n\n✅ This is the original full output with no special deletion.\n\n${debugInfo}`);
 
             } catch (error) {
                 console.error('Processing error:', error);
                 updateStatus(`❌ Error: ${error.message}`, 'error');
                 alert(`An error occurred: ${error.message}`);
             } finally {
-                // Re-enable button
-                button.disabled = false;
+                // Re-enable buttons
                 button.textContent = '🚀 START PROCESSING';
-                button.style.background = '#27ae60';
+                updateProcessButton();
+                hideProgress();
+                updateStatus('✅ Ready for next processing.');
+            }
+        }
+
+        async function startFilteredProcessing() {
+            if (!inventoryFile) {
+                alert('Please select an inventory file first!');
+                return;
+            }
+
+            const button = document.getElementById('filteredButton');
+            button.disabled = true;
+            button.textContent = '⏳ Filtering...';
+            button.style.background = '#bdc3c7';
+
+            updateStatus('🧹 Processing filtered output only...', 'processing');
+            showProgress();
+            clearManualDownloadLinks();
+
+            try {
+                // Read inventory file
+                const inventoryData = await readFile(inventoryFile);
+
+                // DEBUG: Check for CA data
+                const caRows = inventoryData.filter(row =>
+                    row.location_code === 'CA_B2B' || row.location_code === 'CA_B2B_Boxed' || row.location_code === 'CA_B2B_Boxwd'
+                );
+
+                console.log(`DEBUG: Found ${caRows.length} rows with CA location code`);
+
+                // Read USD file if provided
+                let usdData = null;
+                if (usdFile) {
+                    usdData = await readFile(usdFile);
+                }
+
+                // Process data exactly the same as the original output first
+                const processedData = processInventoryData(inventoryData);
+                const processedCaData = processedData.filter(row => row.Country === 'CA');
+                const processedUsdData = usdData ? processFloorUsdData(usdData) : [];
+                const finalData = calculateUsdPrice(processedData, processedUsdData);
+                const finalCaData = finalData.filter(row => row.Country === 'CA');
+
+                const debugInfo = `
+                📊 DEBUG INFO:
+                - Raw CA rows: ${caRows.length}
+                - Processed CA rows: ${processedCaData.length}
+                - Final CA rows: ${finalCaData.length}
+                `;
+
+                // Then apply the special deletion only for this filtered button output
+                const timestamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '').replace(/(\d{4})(\d{4})/, '$1_$2_');
+                const filteredFilename = `Phone_List_${timestamp}_filtered.xlsx`;
+
+                const vzwInventory = processedData.filter(r => r.location_code === 'HK_HTR_B2B_VZW');
+                const vzwFinalData = calculateUsdPrice(vzwInventory, processedUsdData);
+
+                const filteredFinalData = createSecondFilteredOutputData(finalData);
+                const filteredVzwFinalData = createSecondFilteredOutputData(vzwFinalData);
+
+                const filteredBlob = await createExcelOutputWithBorders(filteredFinalData, filteredFilename, filteredVzwFinalData);
+                showManualDownloadLinks([
+                    { filename: filteredFilename, blob: filteredBlob }
+                ]);
+
+                updateStatus(`🎉 SUCCESS! Filtered output saved: ${filteredFilename}`, 'success');
+                alert(`Filtered output completed!\n\nOutput saved to: ${filteredFilename}\n\nThis filtered XLSX removes:\n- US/HK iPhone 14 Pro Max E Sim qty\n- US/HK all iPhone 12 Pro Max rows\n\n${debugInfo}`);
+
+            } catch (error) {
+                console.error('Filtered processing error:', error);
+                updateStatus(`❌ Error: ${error.message}`, 'error');
+                alert(`An error occurred: ${error.message}`);
+            } finally {
+                button.textContent = '🧹 OUTPUT FILTERED XLSX';
+                updateProcessButton();
                 hideProgress();
                 updateStatus('✅ Ready for next processing.');
             }
         }
 
         async function readFile(file) {
-            return new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = function(e) {
-                    try {
-                        const data = new Uint8Array(e.target.result);
-                        const workbook = XLSX.read(data, { type: 'array' });
-                        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-                        const jsonData = XLSX.utils.sheet_to_json(firstSheet);
-                        resolve(jsonData);
-                    } catch (error) {
-                        reject(new Error(`Failed to read file: ${error.message}`));
+            const fileName = (file && file.name ? file.name : '').toLowerCase();
+            const isCsv = fileName.endsWith('.csv');
+            const isExcel = fileName.endsWith('.xlsx') || fileName.endsWith('.xlsm');
+            const isLegacyXls = fileName.endsWith('.xls');
+
+            const buffer = await file.arrayBuffer();
+
+            // Prefer ExcelJS for modern Excel files, because some PCs/browsers fail to load SheetJS (XLSX).
+            // This avoids the common error: "XLSX is not defined" for .xlsx/.xlsm input.
+            if (isExcel && window.ExcelJS) {
+                try {
+                    const workbook = new ExcelJS.Workbook();
+                    await workbook.xlsx.load(buffer);
+                    const worksheet = workbook.worksheets[0];
+                    if (!worksheet) return [];
+
+                    const headerRow = worksheet.getRow(1);
+                    const headers = [];
+                    headerRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+                        headers[colNumber] = cleanCellValue(cell.value);
+                    });
+
+                    const rows = [];
+                    worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+                        if (rowNumber === 1) return;
+                        const obj = {};
+                        let hasValue = false;
+
+                        headers.forEach((header, colNumber) => {
+                            if (!header) return;
+                            const value = cleanCellValue(row.getCell(colNumber).value);
+                            obj[header] = value;
+                            if (value !== '' && value != null) hasValue = true;
+                        });
+
+                        if (hasValue) rows.push(obj);
+                    });
+                    return rows;
+                } catch (excelJsError) {
+                    console.warn('ExcelJS read failed, trying SheetJS fallback:', excelJsError);
+                }
+            }
+
+            if (isCsv) {
+                const text = new TextDecoder('utf-8').decode(buffer);
+                return parseCsvToObjects(text);
+            }
+
+            // Fallback to SheetJS when it is available, especially for legacy .xls files.
+            if (window.XLSX) {
+                const data = new Uint8Array(buffer);
+                const workbook = XLSX.read(data, { type: 'array' });
+                const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                return XLSX.utils.sheet_to_json(firstSheet);
+            }
+
+            if (isLegacyXls) {
+                throw new Error('Failed to read file: .xls requires the XLSX library, but XLSX did not load. Please save the file as .xlsx or reload the page and try again.');
+            }
+            throw new Error('Failed to read file: no Excel reader loaded. Please check internet/CDN access, reload the page, and try again.');
+        }
+
+        function cleanCellValue(value) {
+            if (value == null) return '';
+
+            // ExcelJS rich text cell
+            if (typeof value === 'object') {
+                if (value.text != null) return value.text.toString().trim();
+                if (value.result != null) return cleanCellValue(value.result);
+                if (value.richText && Array.isArray(value.richText)) {
+                    return value.richText.map(part => part.text || '').join('').trim();
+                }
+                if (value.hyperlink && value.text) return value.text.toString().trim();
+                if (value instanceof Date) return value.toISOString().slice(0, 10);
+            }
+
+            return value.toString().trim();
+        }
+
+        function parseCsvToObjects(csvText) {
+            const rows = parseCsvRows(csvText);
+            if (!rows.length) return [];
+
+            const headers = rows[0].map(h => (h || '').toString().trim());
+            return rows.slice(1).map(row => {
+                const obj = {};
+                let hasValue = false;
+                headers.forEach((header, idx) => {
+                    if (!header) return;
+                    const value = row[idx] == null ? '' : row[idx].toString().trim();
+                    obj[header] = value;
+                    if (value !== '') hasValue = true;
+                });
+                return hasValue ? obj : null;
+            }).filter(Boolean);
+        }
+
+        function parseCsvRows(text) {
+            const rows = [];
+            let row = [];
+            let cell = '';
+            let inQuotes = false;
+
+            for (let i = 0; i < text.length; i++) {
+                const ch = text[i];
+                const next = text[i + 1];
+
+                if (ch === '"') {
+                    if (inQuotes && next === '"') {
+                        cell += '"';
+                        i++;
+                    } else {
+                        inQuotes = !inQuotes;
                     }
-                };
-                reader.onerror = () => reject(new Error('Failed to read file'));
-                reader.readAsArrayBuffer(file);
-            });
+                } else if (ch === ',' && !inQuotes) {
+                    row.push(cell);
+                    cell = '';
+                } else if ((ch === '\n' || ch === '\r') && !inQuotes) {
+                    if (ch === '\r' && next === '\n') i++;
+                    row.push(cell);
+                    rows.push(row);
+                    row = [];
+                    cell = '';
+                } else {
+                    cell += ch;
+                }
+            }
+
+            if (cell !== '' || row.length > 0) {
+                row.push(cell);
+                rows.push(row);
+            }
+
+            return rows.filter(r => r.some(v => (v || '').toString().trim() !== ''));
         }
 
         function processInventoryData(data) {
@@ -835,6 +1137,51 @@
             console.log(`DEBUG: Final result has ${finalCaCount} CA rows`);
 
             return finalResult;
+        }
+
+        function createSecondFilteredOutputData(data) {
+            // This is only for the SECOND downloaded XLSX.
+            // The first/original XLSX is not changed.
+            return (data || []).map(row => ({ ...row })).filter(row => {
+                const region = (row.Country || '').toString().trim().toUpperCase();
+                const isUsOrHk = region === 'US' || region === 'HK' || region === 'HK_VZW';
+                if (!isUsOrHk) return true;
+
+                const modelGrade = (row['Model grade'] || '').toString();
+
+                // Remove all iPhone 12 Pro Max rows in US/HK/HK_VZW.
+                if (isIphone12ProMax(modelGrade)) {
+                    return false;
+                }
+
+                // Remove ONLY the E Sim quantity for iPhone 14 Pro Max in US/HK/HK_VZW.
+                // If the row also has P Sim quantity, keep the row and set Qty = PSimQty.
+                if (isIphone14ProMax(modelGrade)) {
+                    const pSimQty = parseNumber(row.PSimQty);
+                    row.ESimQty = 0;
+                    row.Qty = pSimQty;
+                    return pSimQty > 0;
+                }
+
+                return true;
+            });
+        }
+
+        function isIphone14ProMax(modelGrade) {
+            return /\biPhone\s*14\s*Pro\s*Max\b/i.test(modelGrade || '');
+        }
+
+        function isIphone12ProMax(modelGrade) {
+            return /\biPhone\s*12\s*Pro\s*Max\b/i.test(modelGrade || '');
+        }
+
+        function parseNumber(value) {
+            const n = parseFloat(value);
+            return Number.isFinite(n) ? n : 0;
+        }
+
+        function delay(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
         }
 
         async function createExcelOutputWithBorders(data, filename, vzwData = []) {
@@ -1055,6 +1402,7 @@
             const buffer = await workbook.xlsx.writeBuffer();
             const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
             saveAs(blob, filename);
+            return blob;
         }
     </script>
 </body>
