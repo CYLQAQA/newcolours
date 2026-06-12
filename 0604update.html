@@ -200,7 +200,8 @@
       <div class="row">
         <button id="btnExportOrderCsv" disabled="">Export Order CSV</button>
         <button id="btnExportValidationCsv" disabled="">Export Validation CSV</button>
-        <span class="hint">Order exports use the quantities and offers you specify in the breakdown table below.</span>
+        <button id="btnResetOrderInputs" title="Clear entered quantities and offers without changing the current filters">Reset</button>
+        <span class="hint">Order exports use the quantities and offers you specify in the breakdown table below. Reset clears order inputs but keeps filters selected.</span>
       </div>
     </div>
   </section>
@@ -1832,17 +1833,20 @@ DE_SUPPORT_MVAT_B2B\tDE`;
         const country = t.dataset.country;
         const hdr = t.dataset.hdr;
         const val = t.value;
-        for(const key in AGG_MAP){
+        // IMPORTANT: apply the header offer only to rows currently allowed by filters.
+        // The previous logic looped through all AGG_MAP rows by Country + Header only,
+        // which mixed E Sim and P Sim when the visible filter was set to just one SIM type.
+        const visibleRows = applyFilters(DATA.rows).filter(r => r.Country === country && r.Header === hdr);
+        for(const row of visibleRows){
+          const key = row.Key;
           const agg = AGG_MAP[key];
-          if(agg && agg.Country === country && agg.Header === hdr){
-            if(!ORDER_ENTRIES[key]) ORDER_ENTRIES[key] = {qty:0, offer:''};
-            ORDER_ENTRIES[key].offer = val;
-            if(agg.rows){
-              for(let i=0; i<agg.rows.length; i++){
-                const wkey = key + '' + i;
-                if(!ORDER_ENTRIES[wkey]) ORDER_ENTRIES[wkey] = {qty:0, offer:''};
-                ORDER_ENTRIES[wkey].offer = val;
-              }
+          if(!ORDER_ENTRIES[key]) ORDER_ENTRIES[key] = {qty:0, offer:''};
+          ORDER_ENTRIES[key].offer = val;
+          if(agg && agg.rows){
+            for(let i=0; i<agg.rows.length; i++){
+              const wkey = key + '' + i;
+              if(!ORDER_ENTRIES[wkey]) ORDER_ENTRIES[wkey] = {qty:0, offer:''};
+              ORDER_ENTRIES[wkey].offer = val;
             }
           }
         }
@@ -1897,18 +1901,21 @@ DE_SUPPORT_MVAT_B2B\tDE`;
         const hdr = target.dataset.hdr;
         const priceInput = document.querySelector(`input.orderOfferHeader[data-country="${country}"][data-hdr="${hdr}"]`);
         const priceVal = priceInput ? priceInput.value : '';
-        for(const key in AGG_MAP){
+        // IMPORTANT: take only rows in the current filtered view.
+        // This respects SIM chips (E Sim / P Sim), warehouse, batch, locked, preorder, search, category, and model filters.
+        const visibleRows = applyFilters(DATA.rows).filter(r => r.Country === country && r.Header === hdr);
+        for(const row of visibleRows){
+          const key = row.Key;
           const agg = AGG_MAP[key];
-          if(agg && agg.Country === country && agg.Header === hdr){
-            const qtyEff = getEffectiveAggQty(agg);
-            if(!ORDER_ENTRIES[key]) ORDER_ENTRIES[key] = {qty:0, offer:''};
-            ORDER_ENTRIES[key].qty = qtyEff;
-            ORDER_ENTRIES[key].offer = priceVal;
-            if(agg.rows){
-              for(let i=0; i<agg.rows.length; i++){
-                const wkey = key + '' + i;
-                if(ORDER_ENTRIES[wkey]) delete ORDER_ENTRIES[wkey];
-              }
+          if(!agg) continue;
+          const qtyEff = getEffectiveAggQty(agg);
+          if(!ORDER_ENTRIES[key]) ORDER_ENTRIES[key] = {qty:0, offer:''};
+          ORDER_ENTRIES[key].qty = qtyEff;
+          ORDER_ENTRIES[key].offer = priceVal;
+          if(agg.rows){
+            for(let i=0; i<agg.rows.length; i++){
+              const wkey = key + '' + i;
+              if(ORDER_ENTRIES[wkey]) delete ORDER_ENTRIES[wkey];
             }
           }
         }
@@ -1925,6 +1932,14 @@ DE_SUPPORT_MVAT_B2B\tDE`;
     const hasOrders = Object.values(ORDER_ENTRIES).some(ent => ent && ent.qty && ent.qty > 0);
     btnOrder.disabled = !hasOrders;
     btnVal.disabled   = !hasOrders;
+  }
+
+  function resetOrderInputs(){
+    // Clear all quantity/offer inputs used for order generation, but leave every current filter selected.
+    ORDER_ENTRIES = {};
+    updateOrderButtons();
+    scheduleRender();
+    status('Reset order inputs; filters kept.');
   }
 
   function exportOrderCsv(){
@@ -2785,6 +2800,7 @@ for(const country of countries){
   // Order export buttons
   $('#btnExportOrderCsv')?.addEventListener('click', exportOrderCsv);
   $('#btnExportValidationCsv')?.addEventListener('click', exportValidationCsv);
+  document.getElementById('btnResetOrderInputs')?.addEventListener('click', resetOrderInputs);
   // Take all filtered: set quantity to max for all currently filtered rows
   document.getElementById('btnTakeAllFiltered')?.addEventListener('click', ()=>{
     const rows = applyFilters(DATA.rows);
