@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Cost Report Cleaner</title>
+<style>
+  body { font-family: Arial, sans-serif; margin: 24px; background: #f7f7f8; color: #222; }
+  h1 { margin: 0 0 8px; }
+  .card { background: #fff; border: 1px solid #ddd; border-radius: 10px; padding: 16px; margin: 14px 0; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+  button { border: 1px solid #bbb; background: #fff; padding: 8px 12px; border-radius: 8px; cursor: pointer; }
+  button.primary { background: #222; color: white; border-color: #222; }
+  button:hover { opacity: .85; }
+  input[type="file"] { padding: 8px; }
+  input[type="number"], input[type="text"] { padding: 7px; border: 1px solid #ccc; border-radius: 7px; width: 120px; }
+  .muted { color: #666; font-size: 13px; }
+  .warn { background: #fff8db; border-color: #e5cc6b; }
+  .error { color: #a40000; font-weight: bold; }
+  .ok { color: #147a2e; font-weight: bold; }
+  .filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+  .filterBox { border: 1px solid #ddd; border-radius: 10px; padding: 12px; background: #fcfcfc; }
+  .filterHeader { display: flex; justify-content: space-between; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .filterList { max-height: 230px; overflow: auto; border: 1px solid #eee; background: #fff; padding: 8px; border-radius: 8px; }
+  label { display: block; margin: 5px 0; font-size: 13px; }
+  .search { width: 100%; box-sizing: border-box; margin-bottom: 8px; }
+  table { border-collapse: collapse; width: 100%; background: #fff; font-size: 13px; }
+  th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; }
+  th { background: #f1f1f1; position: sticky; top: 0; }
+  .previewWrap { max-height: 360px; overflow: auto; border: 1px solid #ddd; border-radius: 8px; }
+  .hidden { display: none; }
+  .pill { display:inline-block; padding:3px 7px; border-radius:999px; background:#eee; margin:2px; font-size:12px; }
+
+  .actionBlock { border: 1px solid #e3e3e3; background: #fafafa; border-radius: 10px; padding: 12px; margin: 10px 0; }
+  .viewBlock { background: #fff; }
+  .actionTitle { font-weight: bold; margin-bottom: 8px; }
+</style>
+</head>
+<body>
+<h1>Cost Report Cleaner</h1>
+<div class="muted">Import report → load → select Site / Grade / Model / Model Grade → export one of the reports.</div>
+
+<div class="card">
+  <div class="row">
+    <input id="fileInput" type="file" accept=".csv,text/csv" />
+    <button class="primary" id="loadBtn">Load</button>
+    <span id="status" class="muted">No file loaded.</span>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Currency conversion to USD</h3>
+  <div class="muted">USD is fixed at 1. Adjust AUD/HKD if needed. Any other detected currency will appear below and must have a USD rate before export.</div>
+  <div class="row" style="margin-top:10px">
+    <label>AUD → USD<br><input id="rate_AUD" type="number" step="0.000001" value="0.7063"></label>
+    <label>HKD → USD<br><input id="rate_HKD" type="number" step="0.000001" value="0.12768"></label>
+  </div>
+  <div id="extraRates" class="row" style="margin-top:10px"></div>
+  <div id="currencyInfo" class="muted"></div>
+</div>
+
+<div id="summaryCard" class="card hidden">
+  <h3>Loaded file summary</h3>
+  <div id="loadSummary"></div>
+</div>
+
+<div id="filtersCard" class="card hidden">
+  <h3>Filters</h3>
+  <div class="filters">
+    <div class="filterBox" data-filter="Site"><div class="filterHeader"><b>Site</b><span><button data-action="all">Check all</button> <button data-action="none">Uncheck all</button></span></div><input class="search" placeholder="Search Site..."><div class="filterList"></div></div>
+    <div class="filterBox" data-filter="Grade"><div class="filterHeader"><b>Grade</b><span><button data-action="all">Check all</button> <button data-action="none">Uncheck all</button></span></div><input class="search" placeholder="Search Grade..."><div class="filterList"></div></div>
+    <div class="filterBox" data-filter="Model"><div class="filterHeader"><b>Model</b><span><button data-action="all">Check all</button> <button data-action="none">Uncheck all</button></span></div><input class="search" placeholder="Search Model..."><div class="filterList"></div></div>
+    <div class="filterBox" data-filter="Model Grade"><div class="filterHeader"><b>Model Grade</b><span><button data-action="all">Check all</button> <button data-action="none">Uncheck all</button></span></div><input class="search" placeholder="Search Model Grade..."><div class="filterList"></div></div>
+  </div>
+</div>
+
+<div id="outputCard" class="card hidden">
+  <h3>Output</h3>
+
+  <div class="actionBlock">
+    <div class="actionTitle">Download output CSV</div>
+    <div class="row">
+      <button class="primary" id="downloadCostReportBtn">Download 1. Cost report</button>
+      <button class="primary" id="downloadSourceReportBtn">Download 2. Cost report outlining source</button>
+      <button class="primary" id="downloadImeiReportBtn">Download 3. Model IMEI report</button>
+      <span id="filteredCount" class="muted"></span>
+    </div>
+  </div>
+
+  <div class="actionBlock viewBlock">
+    <div class="actionTitle">View online table</div>
+    <div class="row">
+      <button id="viewCostReportBtn">View 1. Cost report</button>
+      <button id="viewSourceReportBtn">View 2. Cost report outlining source</button>
+      <button id="viewImeiReportBtn">View 3. Model IMEI report</button>
+    </div>
+  </div>
+
+  <div id="outputInfo" class="muted" style="margin-top:10px"></div>
+  <div class="previewWrap" style="margin-top:10px"><table id="previewTable"></table></div>
+</div>
+
+<script>
+let rawRows = [];
+let processedRows = [];
+let headers = [];
+let currentOutput = [];
+
+const requiredCols = ['Site', 'Key Product', 'Short SKU', 'SKU', 'Paid price', 'Currency', 'IMEI'];
+
+function parseCSV(text) {
+  const rows = [];
+  let row = [], field = '', inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i], n = text[i + 1];
+    if (inQuotes) {
+      if (c === '"' && n === '"') { field += '"'; i++; }
+      else if (c === '"') { inQuotes = false; }
+      else { field += c; }
+    } else {
+      if (c === '"') inQuotes = true;
+      else if (c === ',') { row.push(field); field = ''; }
+      else if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
+      else if (c !== '\r') field += c;
+    }
+  }
+  if (field.length || row.length) { row.push(field); rows.push(row); }
+  return rows;
+}
+
+function normalizeHeader(h) { return String(h || '').trim().toLowerCase(); }
+function buildHeaderMap(headers) {
+  const map = {};
+  headers.forEach(h => map[normalizeHeader(h)] = h);
+  return map;
+}
+function getVal(row, col) { return row[col] == null ? '' : String(row[col]).trim(); }
+function extractGrade(shortSku) {
+  const s = String(shortSku || '').trim();
+  const idx = s.lastIndexOf('-');
+  return idx >= 0 ? s.slice(idx + 1).trim() : '';
+}
+function parseMoney(v) {
+  const s = String(v || '').replace(/[$,\s]/g, '');
+  const n = Number(s);
+  return Number.isFinite(n) ? n : NaN;
+}
+function round2(n) { return Math.round((n + Number.EPSILON) * 100) / 100; }
+function csvEscape(v) {
+  const s = String(v ?? '');
+  return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+function toCSV(rows) {
+  if (!rows.length) return '';
+  const cols = Object.keys(rows[0]);
+  return [cols.join(','), ...rows.map(r => cols.map(c => csvEscape(r[c])).join(','))].join('\n');
+}
+function downloadCSV(filename, rows) {
+  const csv = '\uFEFF' + toCSV(rows);
+  const blob = new Blob([csv], {type: 'text/csv;charset=utf-8;'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  URL.revokeObjectURL(a.href);
+  a.remove();
+}
+function rateFor(currency) {
+  const c = String(currency || '').trim().toUpperCase() || 'USD';
+  if (c === 'USD') return 1;
+  const el = document.getElementById('rate_' + c);
+  if (!el) return NaN;
+  const rate = Number(el.value);
+  return Number.isFinite(rate) && rate > 0 ? rate : NaN;
+}
+
+function loadFile() {
+  const file = document.getElementById('fileInput').files[0];
+  if (!file) { alert('Please choose a CSV file first.'); return; }
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const text = e.target.result;
+      const parsed = parseCSV(text).filter(r => r.some(x => String(x).trim() !== ''));
+      if (parsed.length < 2) throw new Error('CSV has no data rows.');
+      headers = parsed[0].map(h => String(h || '').trim().replace(/^\uFEFF/, ''));
+      const headerMap = buildHeaderMap(headers);
+      const missing = requiredCols.filter(c => !headerMap[normalizeHeader(c)]);
+      if (missing.length) throw new Error('Missing required columns: ' + missing.join(', '));
+      rawRows = parsed.slice(1).map(arr => {
+        const obj = {};
+        headers.forEach((h, i) => obj[h] = arr[i] ?? '');
+        return obj;
+      });
+      const col = name => headerMap[normalizeHeader(name)];
+      processedRows = rawRows.map((r, idx) => {
+        const model = getVal(r, col('Key Product'));
+        const shortSku = getVal(r, col('Short SKU'));
+        const grade = extractGrade(shortSku);
+        const paid = parseMoney(getVal(r, col('Paid price')));
+        const currency = (getVal(r, col('Currency')) || 'USD').toUpperCase();
+        return {
+          _row: idx + 2,
+          Site: getVal(r, col('Site')),
+          Model: model,
+          Grade: grade,
+          'Model Grade': model && grade ? `${model}-${grade}` : model,
+          'Short SKU': shortSku,
+          SKU: getVal(r, col('SKU')),
+          IMEI: getVal(r, col('IMEI')),
+          Currency: currency,
+          PaidPrice: paid,
+          CostUSD: NaN
+        };
+      }).filter(r => r.Model || r['Short SKU'] || r.IMEI);
+      setupCurrencyUI();
+      renderSummary();
+      renderFilters();
+      document.getElementById('summaryCard').classList.remove('hidden');
+      document.getElementById('filtersCard').classList.remove('hidden');
+      document.getElementById('outputCard').classList.remove('hidden');
+      document.getElementById('status').innerHTML = `<span class="ok">Loaded ${processedRows.length.toLocaleString()} rows.</span>`;
+      updateFilteredCount();
+    } catch (err) {
+      document.getElementById('status').innerHTML = `<span class="error">${err.message}</span>`;
+    }
+  };
+  reader.readAsText(file);
+}
+
+function setupCurrencyUI() {
+  const currencies = [...new Set(processedRows.map(r => r.Currency).filter(Boolean))].sort();
+  const extra = currencies.filter(c => !['USD','AUD','HKD'].includes(c));
+  const extraRates = document.getElementById('extraRates');
+  extraRates.innerHTML = '';
+  extra.forEach(c => {
+    const label = document.createElement('label');
+    label.innerHTML = `${c} → USD<br><input id="rate_${c}" type="number" step="0.000001" placeholder="required">`;
+    extraRates.appendChild(label);
+  });
+  document.getElementById('currencyInfo').innerHTML = 'Detected currencies: ' + currencies.map(c => `<span class="pill">${c}</span>`).join(' ') + (extra.length ? '<br><span class="error">Other currency detected. Please enter conversion rate before export.</span>' : '');
+}
+
+function renderSummary() {
+  const sites = new Set(processedRows.map(r => r.Site));
+  const grades = new Set(processedRows.map(r => r.Grade));
+  const models = new Set(processedRows.map(r => r.Model));
+  const badGrade = processedRows.filter(r => !r.Grade).length;
+  const badCost = processedRows.filter(r => !Number.isFinite(r.PaidPrice)).length;
+  document.getElementById('loadSummary').innerHTML = `
+    Rows loaded: <b>${processedRows.length.toLocaleString()}</b><br>
+    Sites: <b>${sites.size}</b> | Grades from Short SKU: <b>${grades.size}</b> | Models: <b>${models.size}</b><br>
+    Missing/invalid grade from Short SKU: <b>${badGrade}</b> | Missing/invalid Paid price: <b>${badCost}</b>
+  `;
+}
+
+function uniqueValues(field) {
+  return [...new Set(processedRows.map(r => r[field]).filter(v => String(v).trim() !== ''))]
+    .sort((a,b) => String(a).localeCompare(String(b), undefined, {numeric:true, sensitivity:'base'}));
+}
+function renderFilters() {
+  document.querySelectorAll('.filterBox').forEach(box => {
+    const field = box.dataset.filter;
+    const list = box.querySelector('.filterList');
+    const search = box.querySelector('.search');
+    const values = uniqueValues(field);
+    list.innerHTML = values.map(v => `<label data-value="${csvEscape(v).replace(/"/g, '&quot;')}"><input type="checkbox" checked value="${String(v).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;')}"> ${String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;')}</label>`).join('');
+    search.value = '';
+    search.oninput = () => {
+      const q = search.value.toLowerCase();
+      list.querySelectorAll('label').forEach(l => l.style.display = l.textContent.toLowerCase().includes(q) ? '' : 'none');
+    };
+    box.querySelectorAll('button').forEach(btn => {
+      btn.onclick = () => {
+        const checked = btn.dataset.action === 'all';
+        list.querySelectorAll('input[type="checkbox"]').forEach(cb => { if (cb.closest('label').style.display !== 'none') cb.checked = checked; });
+        updateFilteredCount();
+      };
+    });
+    list.onchange = updateFilteredCount;
+  });
+}
+function selectedSet(field) {
+  const box = [...document.querySelectorAll('.filterBox')].find(b => b.dataset.filter === field);
+  return new Set([...box.querySelectorAll('input[type="checkbox"]:checked')].map(cb => cb.value));
+}
+function filteredRows() {
+  if (!processedRows.length) return [];
+  const sites = selectedSet('Site'), grades = selectedSet('Grade'), models = selectedSet('Model'), mgs = selectedSet('Model Grade');
+  return processedRows.filter(r => sites.has(r.Site) && grades.has(r.Grade) && models.has(r.Model) && mgs.has(r['Model Grade']));
+}
+function applyRates(rows) {
+  const missingCurrencies = new Set();
+  const out = rows.map(r => {
+    const rate = rateFor(r.Currency);
+    if (!Number.isFinite(rate)) missingCurrencies.add(r.Currency);
+    return {...r, CostUSD: Number.isFinite(rate) && Number.isFinite(r.PaidPrice) ? r.PaidPrice * rate : NaN};
+  });
+  if (missingCurrencies.size) throw new Error('Missing USD conversion rate for: ' + [...missingCurrencies].join(', '));
+  return out;
+}
+function updateFilteredCount() {
+  const n = filteredRows().length;
+  document.getElementById('filteredCount').textContent = `${n.toLocaleString()} rows selected`;
+}
+function groupAverage(rows, keys) {
+  const map = new Map();
+  rows.forEach(r => {
+    if (!Number.isFinite(r.CostUSD)) return;
+    const k = keys.map(key => r[key]).join('\u0001');
+    if (!map.has(k)) map.set(k, {sum:0, qty:0, sample:r});
+    const g = map.get(k);
+    g.sum += r.CostUSD;
+    g.qty += 1;
+  });
+  return [...map.values()].map(g => ({...g.sample, Cost: round2(g.sum / g.qty), qty: g.qty}))
+    .sort((a,b) => String(a['Model Grade']).localeCompare(String(b['Model Grade']), undefined, {numeric:true, sensitivity:'base'}) || String(a.Site||'').localeCompare(String(b.Site||'')) || a.Cost-b.Cost);
+}
+function buildCostReport() {
+  const rows = applyRates(filteredRows());
+  return groupAverage(rows, ['Model Grade', 'Short SKU']).map(r => ({'Model Grade': r['Model Grade'], 'Short SKU': r['Short SKU'], Cost: r.Cost.toFixed(2), qty: r.qty}));
+}
+function buildSourceReport() {
+  const rows = applyRates(filteredRows());
+  return groupAverage(rows, ['Site', 'Model Grade']).map(r => ({Site: r.Site, 'Model Grade': r['Model Grade'], Cost: r.Cost.toFixed(2), qty: r.qty}));
+}
+function buildImeiReport() {
+  const rows = applyRates(filteredRows());
+  return rows.filter(r => Number.isFinite(r.CostUSD)).map(r => ({'Model Grade': r['Model Grade'], IMEI: r.IMEI, Cost: round2(r.CostUSD).toFixed(2), Site: r.Site, SKU: r.SKU}));
+}
+function renderPreview(rows, title) {
+  currentOutput = rows;
+  const tbl = document.getElementById('previewTable');
+  if (!rows.length) {
+    tbl.innerHTML = '<tr><td>No rows selected/output.</td></tr>';
+    document.getElementById('outputInfo').innerHTML = `<b>${title}</b>: 0 output rows.`;
+    return;
+  }
+  const cols = Object.keys(rows[0]);
+  const previewRows = rows.slice(0, 500);
+  tbl.innerHTML = '<thead><tr>' + cols.map(c => `<th>${c}</th>`).join('') + '</tr></thead><tbody>' + previewRows.map(r => '<tr>' + cols.map(c => `<td>${String(r[c] ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;')}</td>`).join('') + '</tr>').join('') + '</tbody>';
+  document.getElementById('outputInfo').innerHTML = `<b>${title}</b>: ${rows.length.toLocaleString()} output rows. Online table shows first ${Math.min(500, rows.length)} rows.`;
+}
+
+function handleDownload(builder, filename) {
+  try {
+    const rows = builder();
+    if (!rows.length) { alert('No rows selected/output.'); return; }
+    downloadCSV(filename, rows);
+  } catch(e) { alert(e.message); }
+}
+function handleView(builder, title) {
+  try { renderPreview(builder(), title); } catch(e) { alert(e.message); }
+}
+
+document.getElementById('loadBtn').onclick = loadFile;
+document.getElementById('downloadCostReportBtn').onclick = () => handleDownload(buildCostReport, 'cost_report.csv');
+document.getElementById('downloadSourceReportBtn').onclick = () => handleDownload(buildSourceReport, 'cost_report_outlining_source.csv');
+document.getElementById('downloadImeiReportBtn').onclick = () => handleDownload(buildImeiReport, 'model_imei_report.csv');
+document.getElementById('viewCostReportBtn').onclick = () => handleView(buildCostReport, 'Cost report');
+document.getElementById('viewSourceReportBtn').onclick = () => handleView(buildSourceReport, 'Cost report outlining source');
+document.getElementById('viewImeiReportBtn').onclick = () => handleView(buildImeiReport, 'Model IMEI report');
+</script>
+</body>
+</html>
