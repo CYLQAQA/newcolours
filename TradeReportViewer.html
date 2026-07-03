@@ -106,6 +106,9 @@ let processedRows = [];
 let headers = [];
 let currentOutput = [];
 
+const filterFields = ['Site', 'Grade', 'Model', 'Model Grade'];
+let filterSelections = {};
+
 const requiredCols = ['Site', 'Key Product', 'Short SKU', 'SKU', 'Paid price', 'Currency', 'IMEI'];
 
 function parseCSV(text) {
@@ -150,10 +153,21 @@ function csvEscape(v) {
   const s = String(v ?? '');
   return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
 }
+function isLongNumericLike(v) {
+  const s = String(v ?? '').trim();
+  return /^\d{11,20}$/.test(s) || /^[+-]?\d+(?:\.\d+)?e[+-]?\d+$/i.test(s);
+}
+function protectCsvValue(col, value) {
+  const s = String(value ?? '').trim();
+  // Excel auto-converts long IMEI numbers into scientific notation.
+  // For CSV download only, write IMEI as an Excel text formula so it opens as text.
+  if (col === 'IMEI' && isLongNumericLike(s)) return `="${s.replace(/"/g, '""')}"`;
+  return value;
+}
 function toCSV(rows) {
   if (!rows.length) return '';
   const cols = Object.keys(rows[0]);
-  return [cols.join(','), ...rows.map(r => cols.map(c => csvEscape(r[c])).join(','))].join('\n');
+  return [cols.join(','), ...rows.map(r => cols.map(c => csvEscape(protectCsvValue(c, r[c]))).join(','))].join('\n');
 }
 function downloadCSV(filename, rows) {
   const csv = '\uFEFF' + toCSV(rows);
@@ -248,47 +262,121 @@ function renderSummary() {
   const models = new Set(processedRows.map(r => r.Model));
   const badGrade = processedRows.filter(r => !r.Grade).length;
   const badCost = processedRows.filter(r => !Number.isFinite(r.PaidPrice)).length;
+  const sciImei = processedRows.filter(r => isScientificLike(r.IMEI)).length;
   document.getElementById('loadSummary').innerHTML = `
     Rows loaded: <b>${processedRows.length.toLocaleString()}</b><br>
     Sites: <b>${sites.size}</b> | Grades from Short SKU: <b>${grades.size}</b> | Models: <b>${models.size}</b><br>
     Missing/invalid grade from Short SKU: <b>${badGrade}</b> | Missing/invalid Paid price: <b>${badCost}</b>
+    ${sciImei ? `<br><span class="error">Warning: ${sciImei.toLocaleString()} IMEI value(s) already look like scientific notation in the imported CSV. The export will keep them as text, but digits already lost before import cannot be recovered.</span>` : ''}
   `;
 }
 
-function uniqueValues(field) {
-  return [...new Set(processedRows.map(r => r[field]).filter(v => String(v).trim() !== ''))]
+function uniqueValuesFromRows(rows, field) {
+  return [...new Set(rows.map(r => String(r[field] ?? '').trim()).filter(v => v !== ''))]
     .sort((a,b) => String(a).localeCompare(String(b), undefined, {numeric:true, sensitivity:'base'}));
 }
+function uniqueValues(field) {
+  return uniqueValuesFromRows(processedRows, field);
+}
+function filterBoxFor(field) {
+  return [...document.querySelectorAll('.filterBox')].find(b => b.dataset.filter === field);
+}
+function resetFilterSelections() {
+  filterSelections = {};
+  filterFields.forEach(field => {
+    filterSelections[field] = new Set(uniqueValues(field));
+  });
+}
+function rowMatchesFilterSelections(row, exceptField = null) {
+  return filterFields.every(field => {
+    if (field === exceptField) return true;
+    const value = String(row[field] ?? '').trim();
+    const selected = filterSelections[field];
+    return value !== '' && selected && selected.has(value);
+  });
+}
+function rowsForFilterOptions(field) {
+  // Cascading filter options:
+  // this field shows only values that still exist after all other selected filters are applied.
+  return processedRows.filter(r => rowMatchesFilterSelections(r, field));
+}
+function renderOneFilter(field) {
+  const box = filterBoxFor(field);
+  if (!box) return;
+  const list = box.querySelector('.filterList');
+  const search = box.querySelector('.search');
+  const q = String(search.value || '').toLowerCase();
+  const values = uniqueValuesFromRows(rowsForFilterOptions(field), field);
+
+  list.innerHTML = '';
+
+  if (!values.length) {
+    const empty = document.createElement('div');
+    empty.className = 'muted';
+    empty.textContent = 'No matching values under the current filters.';
+    list.appendChild(empty);
+    return;
+  }
+
+  values.forEach(v => {
+    const label = document.createElement('label');
+    label.dataset.value = v;
+
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.value = v;
+    cb.checked = filterSelections[field] && filterSelections[field].has(v);
+
+    label.appendChild(cb);
+    label.appendChild(document.createTextNode(' ' + v));
+    label.style.display = label.textContent.toLowerCase().includes(q) ? '' : 'none';
+    list.appendChild(label);
+  });
+}
+function renderAllFilters() {
+  filterFields.forEach(renderOneFilter);
+  updateFilteredCount();
+}
 function renderFilters() {
+  resetFilterSelections();
+
   document.querySelectorAll('.filterBox').forEach(box => {
     const field = box.dataset.filter;
     const list = box.querySelector('.filterList');
     const search = box.querySelector('.search');
-    const values = uniqueValues(field);
-    list.innerHTML = values.map(v => `<label data-value="${csvEscape(v).replace(/"/g, '&quot;')}"><input type="checkbox" checked value="${String(v).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;')}"> ${String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;')}</label>`).join('');
+
     search.value = '';
-    search.oninput = () => {
-      const q = search.value.toLowerCase();
-      list.querySelectorAll('label').forEach(l => l.style.display = l.textContent.toLowerCase().includes(q) ? '' : 'none');
-    };
+    search.oninput = () => renderOneFilter(field);
+
     box.querySelectorAll('button').forEach(btn => {
       btn.onclick = () => {
         const checked = btn.dataset.action === 'all';
-        list.querySelectorAll('input[type="checkbox"]').forEach(cb => { if (cb.closest('label').style.display !== 'none') cb.checked = checked; });
-        updateFilteredCount();
+        list.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+          if (cb.closest('label').style.display !== 'none') {
+            if (checked) filterSelections[field].add(cb.value);
+            else filterSelections[field].delete(cb.value);
+          }
+        });
+        renderAllFilters();
       };
     });
-    list.onchange = updateFilteredCount;
+
+    list.onchange = e => {
+      if (!e.target.matches('input[type="checkbox"]')) return;
+      if (e.target.checked) filterSelections[field].add(e.target.value);
+      else filterSelections[field].delete(e.target.value);
+      renderAllFilters();
+    };
   });
+
+  renderAllFilters();
 }
 function selectedSet(field) {
-  const box = [...document.querySelectorAll('.filterBox')].find(b => b.dataset.filter === field);
-  return new Set([...box.querySelectorAll('input[type="checkbox"]:checked')].map(cb => cb.value));
+  return filterSelections[field] || new Set();
 }
 function filteredRows() {
   if (!processedRows.length) return [];
-  const sites = selectedSet('Site'), grades = selectedSet('Grade'), models = selectedSet('Model'), mgs = selectedSet('Model Grade');
-  return processedRows.filter(r => sites.has(r.Site) && grades.has(r.Grade) && models.has(r.Model) && mgs.has(r['Model Grade']));
+  return processedRows.filter(r => rowMatchesFilterSelections(r));
 }
 function applyRates(rows) {
   const missingCurrencies = new Set();
