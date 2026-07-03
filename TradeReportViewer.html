@@ -157,6 +157,10 @@ function isLongNumericLike(v) {
   const s = String(v ?? '').trim();
   return /^\d{11,20}$/.test(s) || /^[+-]?\d+(?:\.\d+)?e[+-]?\d+$/i.test(s);
 }
+function isScientificLike(v) {
+  const s = String(v ?? '').trim();
+  return /^[+-]?\d+(?:\.\d+)?e[+-]?\d+$/i.test(s);
+}
 function protectCsvValue(col, value) {
   const s = String(value ?? '').trim();
   // Excel auto-converts long IMEI numbers into scientific notation.
