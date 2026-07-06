@@ -102,8 +102,8 @@
   .btn-mini:hover { background: #f3f4f6; }
   #status { color: var(--muted); font-size: 13px; }
 
-  .layout { display: grid; grid-template-columns: minmax(180px, var(--filter-width, 280px)) minmax(0, 1fr); gap: 0; padding: 16px; align-items: start; }
-  .layout.collapsed { grid-template-columns: 0 minmax(0, 1fr); }
+  .layout { display: grid; grid-template-columns: minmax(180px, var(--filter-width, 280px)) 6px minmax(0, 1fr); gap: 0; padding: 16px; align-items: start; }
+  .layout.collapsed { grid-template-columns: 0 0 minmax(0, 1fr); }
   .layout.collapsed > .filters,
   .layout.collapsed > .resizer { display: none !important; }
 
@@ -133,7 +133,7 @@
   .filter-collapse-btn:hover { color: var(--text); }
   .filter-expand-btn {
     display: none;
-    margin: 16px 0 0 16px;
+    margin-bottom: 10px;
     background: var(--panel);
     border: 1px solid var(--border);
     border-radius: 6px;
@@ -141,8 +141,10 @@
     cursor: pointer;
     font-size: 13px;
     box-shadow: var(--shadow);
+    color: var(--accent);
   }
-  .layout.collapsed ~ .filter-expand-btn { display: inline-block; }
+  .filter-expand-btn:hover { background: var(--accent-soft); }
+  body.filters-collapsed .filter-expand-btn { display: inline-block; }
   .resizer {
     width: 6px;
     background: transparent;
@@ -438,6 +440,7 @@
   <div class="resizer" id="resizer" title="Drag to resize"></div>
 
   <main>
+    <button class="filter-expand-btn" id="filterExpandBtn" title="Show filters">▸ Show filters</button>
     <div id="placeholder">
       <p style="font-size:15px">Pick a <b>sales file</b> and a <b>name-mapping file</b> from the top bar.<br>
       Everything runs locally in your browser — your data never leaves this machine.</p>
@@ -478,8 +481,6 @@
     </div>
   </main>
 </div>
-
-<button class="filter-expand-btn" id="filterExpandBtn" title="Show filters">▸ Filters</button>
 
 <script>
 /* ============================================================
@@ -1368,14 +1369,15 @@ document.querySelectorAll('.tabs button').forEach(b => {
 
 // ---- Filter panel: collapse + resize -----------------------
 const layout = document.getElementById('layout');
-document.getElementById('filterCollapseBtn').addEventListener('click', () => {
-  layout.classList.add('collapsed');
-  localStorage.setItem('filterCollapsed', '1');
-});
-document.getElementById('filterExpandBtn').addEventListener('click', () => {
-  layout.classList.remove('collapsed');
-  localStorage.setItem('filterCollapsed', '0');
-});
+function setCollapsed(collapsed) {
+  layout.classList.toggle('collapsed', collapsed);
+  document.body.classList.toggle('filters-collapsed', collapsed);
+  localStorage.setItem('filterCollapsed', collapsed ? '1' : '0');
+  // Chart.js canvases need a resize after their container width changes
+  setTimeout(() => { chartModels?.resize(); chartCondition?.resize(); }, 50);
+}
+document.getElementById('filterCollapseBtn').addEventListener('click', () => setCollapsed(true));
+document.getElementById('filterExpandBtn').addEventListener('click', () => setCollapsed(false));
 
 (function setupResizer(){
   const resizer = document.getElementById('resizer');
@@ -1406,7 +1408,7 @@ function restoreFilterPrefs() {
     const n = parseInt(raw, 10);
     if (!isNaN(n)) document.documentElement.style.setProperty('--filter-width', Math.max(180, Math.min(800, n)) + 'px');
   }
-  if (localStorage.getItem('filterCollapsed') === '1') layout.classList.add('collapsed');
+  if (localStorage.getItem('filterCollapsed') === '1') setCollapsed(true);
 }
 
 // ---- Export to Excel (.zip) --------------------------------
