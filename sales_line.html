@@ -237,45 +237,6 @@
   .period-row { display: flex; gap: 8px; }
 
   /* Company chip input (top bar) */
-  .company-chips {
-    display: flex; flex-wrap: wrap; align-items: center; gap: 5px;
-    background: #fff; border: 1px solid var(--border); border-radius: 6px;
-    padding: 4px 6px; min-width: 260px; max-width: 460px;
-    position: relative;
-  }
-  .company-chips.is-open { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
-  .chip {
-    display: inline-flex; align-items: center; gap: 4px;
-    background: var(--accent-soft); color: var(--accent);
-    border: 1px solid #c7d2fe; border-radius: 10px;
-    padding: 2px 4px 2px 8px; font-size: 12px; font-weight: 500;
-    max-width: 220px;
-  }
-  .chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .chip button {
-    background: transparent; border: none; cursor: pointer;
-    color: var(--accent); font-size: 15px; line-height: 1; padding: 0 2px;
-    border-radius: 50%;
-  }
-  .chip button:hover { background: #c7d2fe; }
-  .chip-input {
-    border: none; outline: none; flex: 1; min-width: 80px;
-    padding: 4px; font-size: 13px; background: transparent;
-  }
-  .chip-dropdown {
-    display: none; position: absolute; top: calc(100% + 4px); left: 0; right: 0;
-    background: #fff; border: 1px solid var(--border); border-radius: 6px;
-    box-shadow: var(--shadow); max-height: 260px; overflow-y: auto; z-index: 50;
-  }
-  .chip-dropdown.show { display: block; }
-  .chip-dropdown .opt {
-    padding: 7px 10px; cursor: pointer; font-size: 13px;
-    border-bottom: 1px solid var(--border);
-  }
-  .chip-dropdown .opt:last-child { border-bottom: none; }
-  .chip-dropdown .opt:hover, .chip-dropdown .opt.active { background: var(--accent-soft); color: var(--accent); }
-  .chip-dropdown .opt.disabled { color: var(--muted); cursor: default; opacity: 0.6; }
-  .chip-dropdown .opt.disabled:hover { background: transparent; color: var(--muted); }
   .period-row > div { flex: 1; }
   .period-row label { font-size: 11px; color: var(--muted); }
 
@@ -314,8 +275,8 @@
   .table-section { margin-bottom: 22px; }
   .table-section h4 { margin: 0 0 8px; font-size: 13px; }
   table { border-collapse: collapse; width: 100%; font-size: 13px; }
-  th, td { border: 1px solid var(--border); padding: 6px 9px; text-align: left; white-space: nowrap; }
-  th { background: #f3f4f6; cursor: pointer; user-select: none; }
+  th, td { border: 1px solid #9ca3af; padding: 6px 9px; text-align: left; white-space: nowrap; }
+  th { background: #f3f4f6; cursor: pointer; user-select: none; border: 1px solid #6b7280; }
   th:hover { background: #e7e9ee; }
   td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   tr.total-row td { font-weight: 700; background: #eef2ff; }
@@ -375,15 +336,15 @@
     </label>
   </div>
   <div class="navpick">
-    <span style="font-size:12px;color:var(--muted)">Company:</span>
-    <div class="company-chips" id="companyChips" tabindex="-1">
-      <input class="chip-input" id="chipInput" placeholder="Type to search…" autocomplete="off">
-      <div class="chip-dropdown" id="chipDropdown"></div>
-    </div>
+    <label for="companySelect" style="font-size:12px;color:var(--muted)">Company:</label>
+    <select id="companySelect" disabled>
+      <option value="">— pick a company —</option>
+    </select>
   </div>
   <div class="filepick" style="margin-left:auto">
     <button class="btn secondary" id="snapshotBtn" disabled>📸 Snapshot</button>
-    <button class="btn" id="exportBtn" disabled>⬇ Export Excel (.zip)</button>
+    <button class="btn secondary" id="exportAllBtn" disabled>⬇ Export all companies</button>
+    <button class="btn" id="exportBtn" disabled>⬇ Export this company</button>
   </div>
   <span id="status">Pick both files to begin.</span>
 </header>
@@ -482,8 +443,8 @@
             <div class="chart-container"><canvas id="chartModels"></canvas></div>
           </div>
           <div class="chart-box">
-            <h4>Working vs Damaged (Qty)</h4>
-            <div class="chart-container"><canvas id="chartCondition"></canvas></div>
+            <h4>Region (country) distribution by USD</h4>
+            <div class="chart-container"><canvas id="chartRegion"></canvas></div>
           </div>
         </div>
         <div class="table-section">
@@ -491,8 +452,17 @@
           <div class="table-wrap"><table id="tblCountry"></table></div>
         </div>
         <div class="table-section">
-          <h4>Model-grade summary</h4>
-          <div class="table-wrap"><table id="tblModelGrade"></table></div>
+          <h4>Model-grade summary — <span id="mgCurrentLabel"></span> (left) · <span id="mgPrevLabel"></span> (right)</h4>
+          <div class="cols-2">
+            <div>
+              <h5 style="margin:4px 0 6px;font-size:12px;color:var(--muted)" id="mgLeftTitle"></h5>
+              <div class="table-wrap"><table id="tblModelGradeCurr"></table></div>
+            </div>
+            <div>
+              <h5 style="margin:4px 0 6px;font-size:12px;color:var(--muted)" id="mgRightTitle"></h5>
+              <div class="table-wrap"><table id="tblModelGradePrev"></table></div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -542,8 +512,8 @@ let FILTERS = {
   status: new Set(),
   country: new Set(),
 };
-let SELECTED_COMPANIES = new Set();   // empty not allowed; defaults to first company on load
-let chartModels = null, chartCondition = null;
+let SELECTED_COMPANY = '';   // single company, required for viewing
+let chartModels = null, chartRegion = null;
 
 // ---- Library bootstrap --------------------------------------
 window.addEventListener('load', () => {
@@ -603,22 +573,18 @@ async function buildAll(opts) {
     enrichRows(RAW);
   }
   populateFilters();
-  // Company selection: default to first company if none chosen (no "all" mode)
+  // Company selection: single dropdown, default to first company
   const companies = uniqueSorted(RAW.map(r=>r.CompanyName).filter(Boolean));
-  if (SELECTED_COMPANIES.size === 0) {
-    const valid = [...SELECTED_COMPANIES].filter(c => companies.includes(c));
-    SELECTED_COMPANIES = new Set(valid);
-  }
-  if (SELECTED_COMPANIES.size === 0 && companies.length) {
-    SELECTED_COMPANIES.add(companies[0]); // require at least one
-  }
-  renderChips();
+  if (!companies.includes(SELECTED_COMPANY)) SELECTED_COMPANY = companies[0] || '';
+  populateCompanySelect();
   setDefaultMonths();
   renderAll();
   // Capture the post-build HTML for snapshot use
   capturePageHtml();
   document.getElementById('exportBtn').disabled = false;
+  document.getElementById('exportAllBtn').disabled = false;
   document.getElementById('snapshotBtn').disabled = false;
+  document.getElementById('companySelect').disabled = false;
   document.getElementById('placeholder').style.display = 'none';
   document.getElementById('appBody').style.display = 'block';
   document.getElementById('filterPanel').style.display = 'block';
@@ -631,8 +597,7 @@ async function buildAll(opts) {
 }
 
 function applyState(state) {
-  if (state.selectedCompanies) SELECTED_COMPANIES = new Set(state.selectedCompanies);
-  else if (state.selectedCompany) SELECTED_COMPANIES = new Set([state.selectedCompany]); // back-compat
+  if (state.selectedCompany) SELECTED_COMPANY = state.selectedCompany;
   FILTERS.mgMode = state.mgMode || 'model';
   FILTERS.grade = new Set(state.grade || []);
   FILTERS.condition = new Set(state.condition || ['Working','Damaged','Unknown']);
@@ -648,7 +613,7 @@ function applyState(state) {
 
 function snapshotState() {
   return {
-    selectedCompanies: [...SELECTED_COMPANIES],
+    selectedCompany: SELECTED_COMPANY,
     mgMode: FILTERS.mgMode,
     grade: [...FILTERS.grade],
     condition: [...FILTERS.condition],
@@ -724,113 +689,18 @@ function enrichRows(rows) {
 }
 function num(v){ const n = parseFloat(v); return isNaN(n) ? 0 : n; }
 
-// ---- Company chip input -------------------------------------
-function allCompanies() { return uniqueSorted(RAW.map(r=>r.CompanyName).filter(Boolean)); }
-
-function renderChips() {
-  const host = document.getElementById('companyChips');
-  const input = document.getElementById('chipInput');
-  // remove existing chips (keep input + dropdown)
-  [...host.querySelectorAll('.chip')].forEach(c => c.remove());
-  // insert chips before the input
-  for (const c of [...SELECTED_COMPANIES].sort()) {
-    const chip = document.createElement('span');
-    chip.className = 'chip';
-    chip.innerHTML = `<span>${escapeHtml(c)}</span>`;
-    const x = document.createElement('button');
-    x.textContent = '×';
-    x.title = 'Remove';
-    x.addEventListener('click', () => {
-      if (SELECTED_COMPANIES.size === 1) return; // keep at least one
-      SELECTED_COMPANIES.delete(c);
-      renderChips();
-      renderAll();
-    });
-    chip.appendChild(x);
-    host.insertBefore(chip, input);
-  }
-  input.placeholder = SELECTED_COMPANIES.size ? 'Add another…' : 'Type to search…';
+// ---- Company dropdown (single select) -----------------------
+function populateCompanySelect() {
+  const sel = document.getElementById('companySelect');
+  const companies = uniqueSorted(RAW.map(r=>r.CompanyName).filter(Boolean));
+  sel.innerHTML = '<option value="">— pick a company —</option>' +
+    companies.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+  if (SELECTED_COMPANY) sel.value = SELECTED_COMPANY;
 }
-
-function setupChipInput() {
-  const input = document.getElementById('chipInput');
-  const dropdown = document.getElementById('chipDropdown');
-  const host = document.getElementById('companyChips');
-  let activeIdx = -1;
-
-  function currentOptions() {
-    const q = input.value.trim().toLowerCase();
-    return allCompanies()
-      .filter(c => !SELECTED_COMPANIES.has(c))
-      .filter(c => !q || c.toLowerCase().includes(q));
-  }
-  function renderDropdown() {
-    const opts = currentOptions();
-    activeIdx = opts.length ? 0 : -1;
-    if (!opts.length) {
-      dropdown.innerHTML = `<div class="opt disabled">${input.value.trim() ? 'No matches' : 'No more companies'}</div>`;
-      dropdown.classList.add('show');
-      host.classList.add('is-open');
-      return;
-    }
-    dropdown.innerHTML = opts.map((c,i) =>
-      `<div class="opt${i===0?' active':''}" data-company="${escapeHtml(c)}">${escapeHtml(c)}</div>`).join('');
-    dropdown.classList.add('show');
-    host.classList.add('is-open');
-  }
-  function hideDropdown() {
-    dropdown.classList.remove('show');
-    host.classList.remove('is-open');
-    activeIdx = -1;
-  }
-  function addCompany(c) {
-    if (!c || !allCompanies().includes(c)) return;
-    SELECTED_COMPANIES.add(c);
-    input.value = '';
-    hideDropdown();
-    renderChips();
-    renderAll();
-    input.focus();
-  }
-  function setActive(idx) {
-    const opts = [...dropdown.querySelectorAll('.opt:not(.disabled)')];
-    if (!opts.length) return;
-    opts.forEach(o => o.classList.remove('active'));
-    const wrap = idx < 0 ? idx + opts.length : idx % opts.length;
-    opts[wrap].classList.add('active');
-    activeIdx = wrap;
-    opts[wrap].scrollIntoView({block:'nearest'});
-  }
-
-  input.addEventListener('focus', renderDropdown);
-  input.addEventListener('input', renderDropdown);
-  input.addEventListener('keydown', e => {
-    const opts = currentOptions();
-    if (e.key === 'ArrowDown') { e.preventDefault(); setActive(activeIdx + 1); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(activeIdx - 1); }
-    else if (e.key === 'Enter') {
-      e.preventDefault();
-      if (activeIdx >= 0 && opts[activeIdx]) addCompany(opts[activeIdx]);
-      else if (opts.length) addCompany(opts[0]);
-    }
-    else if (e.key === 'Backspace' && !input.value && SELECTED_COMPANIES.size > 1) {
-      // remove last chip on backspace
-      const last = [...SELECTED_COMPANIES].pop();
-      SELECTED_COMPANIES.delete(last);
-      renderChips();
-      renderAll();
-    }
-    else if (e.key === 'Escape') { hideDropdown(); input.blur(); }
-  });
-  dropdown.addEventListener('mousedown', e => {
-    const opt = e.target.closest('.opt');
-    if (opt && !opt.classList.contains('disabled')) addCompany(opt.dataset.company);
-  });
-  document.addEventListener('click', e => {
-    if (!host.contains(e.target)) hideDropdown();
-  });
-}
-setupChipInput();
+document.getElementById('companySelect').addEventListener('change', e => {
+  SELECTED_COMPANY = e.target.value;
+  renderAll();
+});
 
 function escapeHtml(s){ return String(s).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
 
@@ -962,7 +832,7 @@ function activeRows() {
       const key = FILTERS.mgMode === 'model' ? r.ModelName : r.ModelGrade;
       if (!FILTERS.mg.has(key)) return false;
     }
-    if (!SELECTED_COMPANIES.has(r.CompanyName)) return false;
+    if (SELECTED_COMPANY && r.CompanyName !== SELECTED_COMPANY) return false;
     return true;
   });
 }
@@ -1022,15 +892,14 @@ function safeFilename(s){ return String(s).replace(/[^A-Za-z0-9\-_ ]/g,'_'); }
 function renderAll() {
   const rows = activeRows();
   const {curr, prev, currLabel, prevLabel} = splitByPeriod(rows);
-  // update breadcrumb with the selected companies
-  const cs = [...SELECTED_COMPANIES].sort();
-  const label = cs.length === 1 ? cs[0] : `${cs.length} companies`;
+  // update breadcrumb with the selected company
+  const label = SELECTED_COMPANY || '(no company)';
   document.getElementById('breadcrumb').innerHTML =
     `<b>${escapeHtml(label)}</b> · ${currLabel} vs ${prevLabel}`;
   renderKPIs(curr, prev);
   renderCharts(curr, prev);
   renderCountryTable(curr, prev);
-  renderModelGradeTable(curr, prev);
+  renderModelGradeTable(curr, prev, currLabel, prevLabel);
   renderExcelLayout(curr, prev, currLabel, prevLabel);
 }
 
@@ -1067,14 +936,18 @@ function renderCharts(curr, prev) {
     modKeys.map(k=>sumUSD(modCurr.get(k)||[])),
     modKeys.map(k=>sumUSD(modPrev.get(k)||[])), 'USD', true);
 
-  // Working vs Damaged doughnut
-  const w = qtyByCond(curr,'Working'), d = qtyByCond(curr,'Damaged'), u = sumQty(curr)-w-d;
-  const condEl = document.getElementById('chartCondition').getContext('2d');
-  if (chartCondition) chartCondition.destroy();
-  chartCondition = new Chart(condEl, {
-    type: 'doughnut',
-    data: { labels:['Working','Damaged','Unknown'], datasets:[{ data:[w,d,u], backgroundColor:['#16a34a','#dc2626','#9ca3af'] }] },
-    options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{position:'bottom'} } }
+  // Region (country) distribution by USD — pie chart
+  const regG = groupBy(curr, r=>r.Country||'(blank)');
+  const regEntries = [...regG.entries()].sort((a,b)=>sumUSD(b[1])-sumUSD(a[1]));
+  const regLabels = regEntries.map(e=>e[0]);
+  const regData = regEntries.map(e=>sumUSD(e[1]));
+  const regColors = regLabels.map((_,i) => `hsl(${(i*47)%360} 65% 55%)`);
+  const regEl = document.getElementById('chartRegion').getContext('2d');
+  if (chartRegion) chartRegion.destroy();
+  chartRegion = new Chart(regEl, {
+    type: 'pie',
+    data: { labels: regLabels, datasets: [{ data: regData, backgroundColor: regColors }] },
+    options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{position:'right'} } }
   });
 }
 
@@ -1137,29 +1010,36 @@ function renderCountryTable(curr, prev) {
   attachSort('tblCountry', cols, rows);
 }
 
-function renderModelGradeTable(curr, prev) {
+function renderModelGradeTable(curr, prev, currLabel, prevLabel) {
   const field = FILTERS.mgMode === 'model' ? 'ModelName' : 'ModelGrade';
-  const currG = groupBy(curr, r=>r[field]||'(blank)');
-  const prevG = groupBy(prev, r=>r[field]||'(blank)');
-  const keys = [...currG.keys()].sort((a,b)=> sumQty(currG.get(b)) - sumQty(currG.get(a)));
-  const rows = keys.map(k=>{
-    const c = currG.get(k)||[], p = prevG.get(k)||[];
-    return {mg:k, cQ:sumQty(c), cUSD:sumUSD(c), pQ:sumQty(p), pUSD:sumUSD(p)};
-  });
-  const tot = rows.reduce((a,r)=>({cQ:a.cQ+r.cQ,cUSD:a.cUSD+r.cUSD,pQ:a.pQ+r.pQ,pUSD:a.pUSD+r.pUSD}),{cQ:0,cUSD:0,pQ:0,pUSD:0});
-  const cols = [
-    {h: FILTERS.mgMode==='model'?'Model':'Model Grade', k:'mg'},
-    {h:'Qty (Curr)', k:'cQ', num:true, fmt:fmtNum},
-    {h:'USD (Curr)', k:'cUSD', num:true, fmt:fmtUSD},
-    {h:'Qty (Prev)', k:'pQ', num:true, fmt:fmtNum},
-    {h:'USD (Prev)', k:'pUSD', num:true, fmt:fmtUSD},
-  ];
-  let html = `<thead><tr>${cols.map(c=>`<th class="${c.num?'num':''}">${c.h}</th>`).join('')}</tr></thead><tbody>`;
-  for (const r of rows) html += `<tr>${cols.map(c=>`<td class="${c.num?'num':''}">${c.fmt?c.fmt(r[c.k]):r[c.k]}</td>`).join('')}</tr>`;
-  html += `<tr class="total-row"><td>Total</td><td class="num">${fmtNum(tot.cQ)}</td><td class="num">${fmtUSD(tot.cUSD)}</td><td class="num">${fmtNum(tot.pQ)}</td><td class="num">${fmtUSD(tot.pUSD)}</td></tr>`;
-  html += '</tbody>';
-  document.getElementById('tblModelGrade').innerHTML = html;
-  attachSort('tblModelGrade', cols, rows);
+  const mgLabel = FILTERS.mgMode === 'model' ? 'Model' : 'Model Grade';
+  // Update the section labels with the period names
+  const elCur = document.getElementById('mgCurrentLabel');
+  const elPrev = document.getElementById('mgPrevLabel');
+  if (elCur) elCur.textContent = currLabel || 'current';
+  if (elPrev) elPrev.textContent = prevLabel || 'previous';
+  const tL = document.getElementById('mgLeftTitle'); if (tL) tL.textContent = `Current month — ${currLabel || ''}`;
+  const tR = document.getElementById('mgRightTitle'); if (tR) tR.textContent = `Previous month — ${prevLabel || ''}`;
+
+  function buildOne(rowsArr, prefix) {
+    const g = groupBy(rowsArr, r=>r[field]||'(blank)');
+    const keys = [...g.keys()].sort((a,b)=>sumQty(g.get(b))-sumQty(g.get(a)));
+    const data = keys.map(k=>{ const v=g.get(k); return {mg:k, qty:sumQty(v), usd:sumUSD(v)}; });
+    const tot = data.reduce((a,r)=>({qty:a.qty+r.qty,usd:a.usd+r.usd}),{qty:0,usd:0});
+    const cols = [
+      {h: mgLabel, k:'mg'},
+      {h:'Quantity', k:'qty', num:true, fmt:fmtNum},
+      {h:'Total (USD)', k:'usd', num:true, fmt:fmtUSD},
+    ];
+    let html = `<thead><tr>${cols.map(c=>`<th class="${c.num?'num':''}">${c.h}</th>`).join('')}</tr></thead><tbody>`;
+    for (const r of data) html += `<tr>${cols.map(c=>`<td class="${c.num?'num':''}">${c.fmt?c.fmt(r[c.k]):r[c.k]}</td>`).join('')}</tr>`;
+    html += `<tr class="total-row"><td>Total</td><td class="num">${fmtNum(tot.qty)}</td><td class="num">${fmtUSD(tot.usd)}</td></tr>`;
+    html += '</tbody>';
+    document.getElementById(prefix).innerHTML = html;
+    attachSort(prefix, cols, data);
+  }
+  buildOne(curr, 'tblModelGradeCurr');
+  buildOne(prev, 'tblModelGradePrev');
 }
 
 function attachSort(tableId, cols, rows) {
@@ -1197,11 +1077,11 @@ function renderExcelLayout(curr, prev, currLabel, prevLabel) {
   // Section 1: All-company MoM summary across the selected companies
   html += renderAllCompanyMoMTable(curr, prev, currLabel, prevLabel);
 
-  // Section 2: One block per selected company (matches Python script layout)
-  const currByCo = groupBy(curr, r=>r.CompanyName||'(blank)');
-  const prevByCo = groupBy(prev, r=>r.CompanyName||'(blank)');
-  for (const c of [...SELECTED_COMPANIES].sort()) {
-    html += renderCompanyBlock(c, currByCo.get(c)||[], prevByCo.get(c)||[], currLabel, prevLabel);
+  // Section 2: Block for the selected company (matches Python script layout)
+  if (SELECTED_COMPANY) {
+    const currByCo = groupBy(curr, r=>r.CompanyName||'(blank)');
+    const prevByCo = groupBy(prev, r=>r.CompanyName||'(blank)');
+    html += renderCompanyBlock(SELECTED_COMPANY, currByCo.get(SELECTED_COMPANY)||[], prevByCo.get(SELECTED_COMPANY)||[], currLabel, prevLabel);
   }
   host.innerHTML = html;
 }
@@ -1354,24 +1234,27 @@ function renderCompanyBlock(company, cc, cp, currLabel, prevLabel) {
         <tr class="total-row"><td>Total</td><td class="num">${fmtNum(tot.Quantity)}</td><td class="num">${fmtUSD(tot.USD)}</td></tr>
       </tbody>
     </table>`;
-  const gD = `<h4 style="font-size:13px;margin:14px 0 6px">Model Grade Summary — ${escapeHtml(currLabel)}</h4>${renderMGTable(mgCurr, mgCTot)}`;
-  const gE = `<h4 style="font-size:13px;margin:18px 0 6px">Model Grade Summary — ${escapeHtml(prevLabel)}</h4>${renderMGTable(mgPrev, mgPTot)}`;
 
   return `
   <div class="excel-block">
     <h3>🏢 ${escapeHtml(company)}</h3>
     <div class="subtitle">Current: ${escapeHtml(currLabel)} · Compare: ${escapeHtml(prevLabel)}</div>
+    <h4 style="font-size:13px;margin:0 0 6px">Order-level Summary</h4>
+    ${gA}
+    <h4 style="font-size:13px;margin:18px 0 6px">Country Breakdown — ${escapeHtml(currLabel)}</h4>
+    <div class="cols-2">
+      <div>${gB}</div>
+      <div>${gC}</div>
+    </div>
+    <h4 style="font-size:13px;margin:18px 0 6px">Model Grade Summary</h4>
     <div class="cols-2">
       <div>
-        <h4 style="font-size:13px;margin:0 0 6px">Order-level Summary</h4>
-        ${gA}
-        ${gD}
-        ${gE}
+        <div class="subtitle" style="margin:0 0 6px">Current — ${escapeHtml(currLabel)}</div>
+        ${renderMGTable(mgCurr, mgCTot)}
       </div>
       <div>
-        <h4 style="font-size:13px;margin:0 0 6px">Country Breakdown — ${escapeHtml(currLabel)}</h4>
-        ${gB}
-        ${gC}
+        <div class="subtitle" style="margin:0 0 6px">Previous — ${escapeHtml(prevLabel)}</div>
+        ${renderMGTable(mgPrev, mgPTot)}
       </div>
     </div>
   </div>`;
@@ -1384,7 +1267,7 @@ document.querySelectorAll('.tabs button').forEach(b => {
     document.querySelectorAll('.tab-content').forEach(x=>x.classList.remove('active'));
     b.classList.add('active');
     document.getElementById('tab-'+b.dataset.tab).classList.add('active');
-    if (b.dataset.tab==='dashboard') { chartModels?.resize(); chartCondition?.resize(); }
+    if (b.dataset.tab==='dashboard') { chartModels?.resize(); chartRegion?.resize(); }
   });
 });
 
@@ -1393,7 +1276,7 @@ function setCollapsed(collapsed) {
   document.body.classList.toggle('filters-collapsed', collapsed);
   localStorage.setItem('filterCollapsed', collapsed ? '1' : '0');
   // Chart.js canvases need a resize after their container width changes
-  setTimeout(() => { chartModels?.resize(); chartCondition?.resize(); }, 200);
+  setTimeout(() => { chartModels?.resize(); chartRegion?.resize(); }, 200);
 }
 document.getElementById('filterCollapseBtn').addEventListener('click', () => setCollapsed(true));
 document.getElementById('filterExpandBtn').addEventListener('click', () => setCollapsed(false));
@@ -1664,8 +1547,7 @@ function downloadSnapshot() {
       const dataScript = `<script id="__snapshotData" type="application/json">${json.replace(/<\/script>/gi, '<\\/script>')}<\/script>`;
       // Inject the data script right after the <head> opening tag.
       let html = PAGE_HTML.replace(/<head>/i, '<head>\n' + dataScript + '\n');
-      const cs = [...SELECTED_COMPANIES].sort();
-      const company = cs.length === 1 ? cs[0] : `${cs.length}companies`;
+      const company = SELECTED_COMPANY || 'company';
       const cm = document.getElementById('currMonth').value;
       const pm = document.getElementById('prevMonth').value;
       const fname = `snapshot_${safeFilename(company)}_${cm}_vs_${pm}.html`;
