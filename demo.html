@@ -1,0 +1,940 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sales Dashboard — Demo</title>
+
+<!-- Demo: single-file showcase of the Monthly Report + Last Selling Price modes.
+     Uses synthetic data so anyone can open this and click through both modes. -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"
+        integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw"
+        crossorigin="anonymous"
+        onerror="window.__libFail='xlsx'"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"
+        integrity="sha384-JUh163oCRItcbPme8pYnROHQMC6fNKTBWtRG3I3I0erJkzNgL7uxKlNwcrcFKeqF"
+        crossorigin="anonymous"
+        onerror="window.__libFail='chart'"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"
+        integrity="sha384-+mbV2IY1Zk/X1p/nWllGySJSUN8uMs+gUAN10Or95UBH0fpj6GfKgPmgC5EXieXG"
+        crossorigin="anonymous"
+        onerror="window.__libFail='jszip'"></script>
+
+<style>
+  :root {
+    --bg:#f5f6f8; --panel:#fff; --border:#e2e5ea; --text:#1f2430;
+    --muted:#6b7280; --accent:#2563eb; --accent-soft:#eef2ff;
+    --green:#16a34a; --red:#dc2626;
+    --shadow:0 1px 2px rgba(0,0,0,.04),0 1px 3px rgba(0,0,0,.06);
+    --filter-width:280px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);font-size:14px}
+  header{background:var(--panel);border-bottom:1px solid var(--border);padding:12px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;position:sticky;top:0;z-index:10;box-shadow:var(--shadow)}
+  header h1{margin:0;font-size:18px;font-weight:650}
+  header .actions{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .btn{background:var(--accent);color:#fff;border:none;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500}
+  .btn:hover{background:#1d4ed8}
+  .btn.secondary{background:#fff;color:var(--text);border:1px solid var(--border)}
+  .btn.secondary:hover{background:#f3f4f6}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+
+  /* Mode toggle (segmented control) */
+  .mode-toggle{display:inline-flex;background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:2px;gap:2px}
+  .mode-toggle button{background:transparent;border:none;padding:6px 14px;font-size:13px;color:var(--muted);cursor:pointer;border-radius:5px;font-weight:500}
+  .mode-toggle button.active{background:var(--panel);color:var(--accent);box-shadow:var(--shadow)}
+
+  /* Floating filter sidebar */
+  .filters{position:fixed;top:64px;left:0;bottom:0;width:var(--filter-width);max-width:800px;background:var(--panel);border-right:1px solid var(--border);box-shadow:2px 0 6px rgba(0,0,0,.04);padding:14px 14px 30px;overflow-y:auto;z-index:20}
+  .filters-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+  .filters h3{margin:0;font-size:14px}
+  .filter-group{margin-bottom:16px}
+  .filter-group .label{display:block;font-size:12px;font-weight:600;text-transform:uppercase;color:var(--muted);margin-bottom:5px;letter-spacing:.03em}
+  .checklist{max-height:140px;overflow-y:auto;border:1px solid var(--border);border-radius:5px;padding:4px;background:#fafbfc}
+  .checklist label{display:flex;align-items:center;gap:6px;padding:3px 4px;font-size:13px;cursor:pointer;border-radius:3px}
+  .checklist label:hover{background:#eef0f3}
+  .controls{display:flex;gap:6px;padding:4px 4px 6px}
+  .btn-mini{background:#fff;color:var(--text);border:1px solid var(--border);padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:500}
+  .btn-mini:hover{background:#f3f4f6}
+  details.filter-group>summary{cursor:pointer;font-size:12px;font-weight:600;text-transform:uppercase;color:var(--muted);margin-bottom:5px;list-style:none}
+  details.filter-group>summary::before{content:"▸ "}
+  details.filter-group[open]>summary::before{content:"▾ "}
+  .search{width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:5px;font-size:13px;margin-bottom:6px}
+  select,input[type="month"],input[type="date"]{padding:6px 8px;border:1px solid var(--border);border-radius:5px;font-size:13px;width:100%;background:#fff}
+  header select{width:auto;min-width:180px}
+  .period-row{display:flex;gap:8px}
+  .period-row>div{flex:1}
+  .period-row label{font-size:11px;color:var(--muted)}
+
+  /* Currency rates editor */
+  .rate-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:6px}
+  .rate-grid label{display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:12px}
+  .rate-grid input{width:80px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;font-size:12px}
+
+  /* Main area */
+  main{margin-left:calc(var(--filter-width) + 6px);padding:16px 20px;min-width:0}
+  .tabs{display:flex;gap:4px;margin-bottom:12px;align-items:center;flex-wrap:wrap}
+  .tabs button{padding:8px 16px;border:1px solid var(--border);background:#fff;cursor:pointer;border-radius:6px 6px 0 0;font-size:13px;border-bottom:none}
+  .tabs button.active{background:var(--accent);color:#fff}
+  .breadcrumb{font-size:13px;color:var(--muted);margin-left:12px}
+  .breadcrumb b{color:var(--text)}
+  .tab-content{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:18px;box-shadow:var(--shadow);display:none}
+  .tab-content.active{display:block}
+
+  /* KPIs / charts */
+  .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:18px}
+  .kpi{background:#fafbfc;border:1px solid var(--border);border-radius:8px;padding:14px}
+  .kpi .label{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}
+  .kpi .value{font-size:24px;font-weight:700;margin:4px 0}
+  .kpi .delta{font-size:12px;font-weight:600}
+  .delta.up{color:var(--green)}.delta.down{color:var(--red)}.delta.flat{color:var(--muted)}
+  .chart-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px}
+  @media(max-width:1100px){.chart-row{grid-template-columns:1fr}}
+  .chart-box{background:#fafbfc;border:1px solid var(--border);border-radius:8px;padding:14px}
+  .chart-box h4{margin:0 0 8px;font-size:13px}
+  .chart-container{position:relative;height:280px}
+
+  /* Tables */
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{border:1px solid #9ca3af;padding:6px 9px;text-align:left;white-space:nowrap}
+  th{background:#f3f4f6;cursor:pointer;user-select:none;border:1px solid #6b7280}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+  tr.total-row td{font-weight:700;background:#eef2ff}
+  .table-wrap{overflow:auto;max-height:480px;border:1px solid var(--border);border-radius:6px}
+  .table-section{margin-bottom:22px}
+  .table-section h4{margin:0 0 8px;font-size:13px}
+
+  /* ASP / Sales-by-model report styles */
+  .asp-country{margin-bottom:18px}
+  .asp-country h3{margin:8px 0 6px;font-size:13px}
+  .country-tabs{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
+  .country-tabs button{padding:5px 11px;font-size:12px;border:1px solid var(--border);background:#fff;cursor:pointer;border-radius:14px}
+  .country-tabs button.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .country-table{display:none}
+  .country-table.active{display:block}
+  tr.asp-grade td{background:#f3f4f6;font-weight:600}
+  td.indent{padding-left:24px}
+
+  #placeholder{color:var(--muted);text-align:center;padding:60px 20px}
+  #placeholder .big{font-size:16px;margin-bottom:8px}
+
+  /* Chip input for filters */
+  .chip-group{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px}
+  .chip{padding:4px 10px;font-size:12px;border:1px solid var(--border);background:#fff;border-radius:14px;cursor:pointer;user-select:none}
+  .chip.active{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+
+  /* Overlay */
+  #overlay{position:fixed;inset:0;background:rgba(255,255,255,.85);display:none;align-items:center;justify-content:center;z-index:100;flex-direction:column;gap:14px}
+  #overlay.show{display:flex}
+  .spinner{width:42px;height:42px;border:4px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📊 Sales Dashboard <span style="color:var(--muted);font-weight:400;font-size:12px;margin-left:6px">demo</span></h1>
+  <div class="mode-toggle" id="modeToggle">
+    <button data-mode="monthly" class="active">📈 Monthly Report</button>
+    <button data-mode="pricing">💲 Last Selling Price</button>
+  </div>
+  <div class="actions">
+    <label style="font-size:12px;color:var(--muted)">Company:</label>
+    <select id="companySelect"><option value="">All companies</option></select>
+    <button class="btn" id="loadDemo">🎲 Load demo data</button>
+  </div>
+</header>
+
+<aside class="filters" id="filterPanel" style="display:none">
+  <div class="filters-head"><h3>Filters</h3></div>
+
+  <div class="filter-group">
+    <span class="label">Currency Rates (USD per unit) — <a href="#" id="resetRates" style="font-size:11px;color:var(--accent);text-decoration:none">reset</a></span>
+    <div class="rate-grid" id="rateGrid"></div>
+    <button class="btn-mini" id="updateRates" style="margin-top:6px">Update rates</button>
+  </div>
+
+  <details class="filter-group" open data-mode-show="monthly">
+    <summary>Model / Model Grade</summary>
+    <div style="display:flex;gap:6px;margin-bottom:6px">
+      <button data-mgmode="model" class="btn-mini" style="flex:1;background:var(--accent-soft);border-color:var(--accent);color:var(--accent)">By model</button>
+      <button data-mgmode="modelgrade" class="btn-mini" style="flex:1">By model-grade</button>
+    </div>
+    <input class="search" data-target="mg" placeholder="Search…">
+    <div class="controls"><button class="btn-mini" data-checkall="mg">All</button><button class="btn-mini" data-checknone="mg">None</button></div>
+    <div class="checklist" id="cl-mg"></div>
+  </details>
+
+  <details class="filter-group" open data-mode-show="pricing">
+    <summary>Model search (OR tokens)</summary>
+    <input class="search" id="modelInput" placeholder="Type model name and press Enter">
+    <div id="modelTokens" style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px"></div>
+  </details>
+
+  <details class="filter-group" open>
+    <summary>Category</summary>
+    <div class="chip-group" id="categoryChips">
+      <span class="chip active" data-cat="All">All</span>
+      <span class="chip" data-cat="Smartphones">Phones</span>
+      <span class="chip" data-cat="Laptops">Laptops</span>
+      <span class="chip" data-cat="Tablets">Tablets</span>
+      <span class="chip" data-cat="Wearables">Wearables</span>
+      <span class="chip" data-cat="Accessories">Accessories</span>
+    </div>
+  </details>
+
+  <details class="filter-group">
+    <summary>Country</summary>
+    <input class="search" data-target="country" placeholder="Search countries…">
+    <div class="controls"><button class="btn-mini" data-checkall="country">All</button><button class="btn-mini" data-checknone="country">None</button></div>
+    <div class="checklist" id="cl-country"></div>
+  </details>
+
+  <details class="filter-group" open>
+    <summary>Grade (raw)</summary>
+    <input class="search" data-target="grade" placeholder="Search grades…">
+    <div class="controls"><button class="btn-mini" data-checkall="grade">All</button><button class="btn-mini" data-checknone="grade">None</button></div>
+    <div class="checklist" id="cl-grade"></div>
+  </details>
+
+  <details class="filter-group">
+    <summary>Condition</summary>
+    <div class="checklist" id="cl-condition"></div>
+  </details>
+
+  <details class="filter-group">
+    <summary>Order Status</summary>
+    <input class="search" data-target="status" placeholder="Search status…">
+    <div class="controls"><button class="btn-mini" data-checkall="status">All</button><button class="btn-mini" data-checknone="status">None</button></div>
+    <div class="checklist" id="cl-status"></div>
+  </details>
+
+  <details class="filter-group" open data-mode-show="pricing">
+    <summary>Date Range</summary>
+    <div class="chip-group" id="dateChips">
+      <span class="chip" data-d="2">Last 2 Days</span>
+      <span class="chip" data-d="7">Last 7 Days</span>
+      <span class="chip" data-d="30">1 Month</span>
+      <span class="chip" data-d="90">3 Months</span>
+      <span class="chip active" data-d="all">All</span>
+    </div>
+  </details>
+
+  <details class="filter-group" open data-mode-show="pricing">
+    <summary>Price Lock (Pre-Order)</summary>
+    <div class="chip-group" id="priceChips">
+      <span class="chip active" data-pl="all">Include All</span>
+      <span class="chip" data-pl="exclude">Exclude Pre-Order</span>
+      <span class="chip" data-pl="only">Only Pre-Order</span>
+    </div>
+  </details>
+
+  <details class="filter-group" open data-mode-show="monthly">
+    <summary>Period (month compare)</summary>
+    <div class="period-row">
+      <div><label>Current</label><input type="month" id="currMonth"></div>
+      <div><label>Compare</label><input type="month" id="prevMonth"></div>
+    </div>
+  </details>
+</aside>
+
+<main>
+  <div id="placeholder">
+    <div class="big">👋 Click <b>Load demo data</b> to get started</div>
+    <p>The demo loads ~250 synthetic sales across 8 companies and 5 countries.<br>
+    Switch between <b>Monthly Report</b> and <b>Last Selling Price</b> to see both modes.</p>
+  </div>
+
+  <div id="appBody" style="display:none">
+    <div class="tabs">
+      <button data-tab="dashboard" class="active" data-mode-show="monthly">📈 Company Dashboard</button>
+      <button data-tab="mg" data-mode-show="monthly">🧮 Model-Grade Summary</button>
+      <button data-tab="excel" data-mode-show="monthly">📋 Excel Layout</button>
+      <button data-tab="asp" data-mode-show="pricing">💲 Last ASP</button>
+      <button data-tab="salesmodel" data-mode-show="pricing">🔍 Sales by Model</button>
+      <button data-tab="raw" data-mode-show="both">📄 Raw Data</button>
+      <span class="breadcrumb" id="breadcrumb"></span>
+    </div>
+
+    <div class="tab-content active" id="tab-dashboard">
+      <div class="kpi-grid" id="kpiGrid"></div>
+      <div class="chart-row">
+        <div class="chart-box"><h4>Top models by USD (current vs compare)</h4><div class="chart-container"><canvas id="chartModels"></canvas></div></div>
+        <div class="chart-box"><h4>Region (country) distribution by USD</h4><div class="chart-container"><canvas id="chartRegion"></canvas></div></div>
+      </div>
+      <div class="table-section"><h4>Country breakdown</h4><div class="table-wrap"><table id="tblCountry"></table></div></div>
+    </div>
+
+    <div class="tab-content" id="tab-mg">
+      <h4 style="margin:0 0 10px;font-size:13px">Model-grade summary — <span id="mgCurLabel"></span> (left) · <span id="mgPrevLabel"></span> (right)</h4>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div><div class="table-wrap"><table id="tblMGCurr"></table></div></div>
+        <div><div class="table-wrap"><table id="tblMGPrev"></table></div></div>
+      </div>
+    </div>
+
+    <div class="tab-content" id="tab-excel">
+      <div style="margin-bottom:10px;font-size:12px;color:var(--muted)">A simplified view of the per-company block. (Full Excel export is wired up in the production tool.)</div>
+      <div id="excelLayout"></div>
+    </div>
+
+    <div class="tab-content" id="tab-asp">
+      <div style="margin-bottom:10px;font-size:12px;color:var(--muted)">For each country × model grade, the most recent sale's per-unit USD price.</div>
+      <div id="aspContent"></div>
+    </div>
+
+    <div class="tab-content" id="tab-salesmodel">
+      <div style="margin-bottom:10px;font-size:12px;color:var(--muted)">Every individual sale nested under its model grade, per country.</div>
+      <div id="salesModelContent"></div>
+    </div>
+
+    <div class="tab-content" id="tab-raw">
+      <div style="margin-bottom:10px;font-size:12px;color:var(--muted)">All filtered rows with computed per-unit USD price.</div>
+      <div class="table-wrap"><table id="tblRaw"></table></div>
+    </div>
+  </div>
+</main>
+
+<div id="overlay"><div class="spinner"></div><div id="overlayMsg">Loading…</div></div>
+
+<script>
+/* ============================================================
+   DEMO — Sales Dashboard
+   Synthetic data, both modes, no file picker required.
+   ============================================================ */
+
+const WORKING_GRADES = ['A','B','Z','C','W','NB','N','AS','CP','WP'];
+const DAMAGED_GRADES = ['Cx','D','Dx','F'];
+const CATEGORY_LOOKUP = {AC:'Accessories',EP:'Environment Products',CP:'Computers',LP:'Laptops',PH:'Smartphones',WB:'Wearables',TB:'Tablets'};
+
+// Rates (Oct 2025) — same table as the pricing tool
+const RATES = {USD:1.0,AUD:0.6500,EUR:1.1628,AED:0.2723,GBP:1.3514,JPY:0.00661,CAD:0.7143};
+
+// State
+let RAW = [];
+let FILTERS = {
+  mg: new Set(),
+  mgMode: 'model',
+  grade: new Set(),
+  condition: new Set(['Working','Damaged','Unknown']),
+  status: new Set(),
+  country: new Set(),
+};
+let PRICING_FILTERS = {
+  tokens: [],
+  categories: new Set(['All']),
+  dateRange: 'all',
+  priceLock: 'all',
+};
+let SELECTED_COMPANY = '';
+let MODE = 'monthly';
+
+let chartModels = null, chartRegion = null;
+
+/* ---------- Synthetic data generator ---------- */
+function generateDemoData() {
+  const companies = ['Acme Mobile','Globex Phones','Initech Devices','Umbrella Tech','Wayne Phones','Stark Mobile','Hooli Devices','Pied Piper'];
+  const countries = ['US','UK','DE','AU','CA'];
+  const statuses = ['Shipped','Paid','Paid','Paid','Shipped','Cancelled','Order Submitted'];
+  const saleTypes = ['Sale','Sale','Sale','Pre-Order','Trade-In','Wholesale'];
+  const baseSkus = [
+    {cat:'PH',prefix:'IPH13-',name:'iPhone 13'},
+    {cat:'PH',prefix:'IPH14-',name:'iPhone 14'},
+    {cat:'PH',prefix:'IPH15-',name:'iPhone 15'},
+    {cat:'LP',prefix:'MBA-',   name:'MacBook Air'},
+    {cat:'LP',prefix:'MBP-',   name:'MacBook Pro'},
+    {cat:'TB',prefix:'IPAD-',  name:'iPad Pro'},
+    {cat:'WB',prefix:'AWCH-',  name:'Apple Watch'},
+    {cat:'AC',prefix:'CASE-',  name:'Phone Case'},
+  ];
+  const grades = ['A','B','A','A','NB','CP','Cx'];
+
+  const today = new Date('2026-07-08');
+  const rows = [];
+  for (let i = 0; i < 280; i++) {
+    const skuBase = baseSkus[Math.floor(Math.random()*baseSkus.length)];
+    const grade = grades[Math.floor(Math.random()*grades.length)];
+    const company = companies[Math.floor(Math.random()*companies.length)];
+    const country = countries[Math.floor(Math.random()*countries.length)];
+    const status = statuses[Math.floor(Math.random()*statuses.length)];
+    const saleType = saleTypes[Math.floor(Math.random()*saleTypes.length)];
+    // Date: spread across last ~180 days
+    const daysAgo = Math.floor(Math.random()*180);
+    const d = new Date(today.getTime() - daysAgo*86400000);
+    // Build a SKU like "PH-IPH13-ATT-064-SG-A" + grade suffix
+    const sku = `${skuBase.cat}-${skuBase.prefix}ATT-064-SG-${grade}`;
+    const qty = 1 + Math.floor(Math.random()*8);
+    const perUnit = 50 + Math.random()*950;
+    const total = +(perUnit * qty).toFixed(2);
+    const currency = ['USD','EUR','GBP','AUD','CAD','JPY','AED'][Math.floor(Math.random()*7)];
+    rows.push({
+      ID: 'O'+(1000+i),
+      CreatedAt: d,
+      CompanyName: company,
+      SKU: sku,
+      Quantity: qty,
+      Total: total,
+      Currency: currency,
+      Country: country,
+      OrderStatus: status,
+      SaleType: saleType,
+    });
+  }
+  return rows;
+}
+
+/* ---------- SKU parsing & enrichment ---------- */
+function splitSkuFirstSeg(sku) {
+  sku = (sku==null?'':String(sku)).trim();
+  if (!sku) return ['',''];
+  const idx = sku.indexOf('-');
+  return idx < 0 ? [sku,''] : [sku.slice(0,idx), sku.slice(idx+1)];
+}
+function gradeFromFullSku(sku) {
+  // Take everything after the first segment as the "rest"; treat the last
+  // dash-separated segment as the grade.
+  sku = (sku==null?'':String(sku)).trim();
+  if (!sku.includes('-')) return '';
+  const last = sku.lastIndexOf('-');
+  return sku.slice(last+1).trim();
+}
+function gradeCondition(grade) {
+  if (WORKING_GRADES.includes(grade)) return 'Working';
+  if (DAMAGED_GRADES.includes(grade)) return 'Damaged';
+  return 'Unknown';
+}
+function enrichRows(rows) {
+  for (const r of rows) {
+    const [firstSeg, rest] = splitSkuFirstSeg(r.SKU);
+    r.BaseSKU = firstSeg;
+    r.Grade = gradeFromFullSku(r.SKU);
+    r.ModelName = CATEGORY_LOOKUP[firstSeg] ? `${CATEGORY_LOOKUP[firstSeg]} ${rest.split('-').slice(0,2).join('-')}` : rest.split('-').slice(0,2).join('-');
+    r.ModelGrade = r.Grade ? `${r.ModelName}-${r.Grade}` : r.ModelName;
+    r.Condition = gradeCondition(r.Grade);
+    r.Category = CATEGORY_LOOKUP[firstSeg] || 'Other';
+    r.Quantity = +r.Quantity || 0;
+    r.Total = +r.Total || 0;
+    r.perUnit = r.Quantity ? r.Total / r.Quantity : 0;
+    r.rate = RATES[(r.Currency||'USD').toUpperCase()] ?? 1;
+    r.perUnitUsd = r.perUnit * r.rate;
+    r.USD_Total = r.Total * r.rate;
+  }
+}
+
+/* ---------- Helpers ---------- */
+function num(v){ const n=parseFloat(v); return isNaN(n)?0:n; }
+function sumQty(rs){ return rs.reduce((s,r)=>s+r.Quantity,0); }
+function sumUSD(rs){ return rs.reduce((s,r)=>s+r.USD_Total,0); }
+function sumPerUnitUSD(rs){ return rs.reduce((s,r)=>s+r.perUnitUsd,0); }
+function qtyByCond(rs,c){ return rs.filter(r=>r.Condition===c).reduce((s,r)=>s+r.Quantity,0); }
+function groupBy(rs,fn){ const m=new Map(); for(const r of rs){ const k=fn(r); if(!m.has(k))m.set(k,[]); m.get(k).push(r);} return m; }
+function uniqueSorted(a){ return [...new Set(a)].sort((x,y)=>String(x).localeCompare(String(y))); }
+function fmtUSD(v){ return '$'+v.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fmtNum(v){ return v.toLocaleString(); }
+function fmtPct(p){ return p==null?'N/A':`${p>=0?'+':''}${p.toFixed(1)}%`; }
+function momPct(d,p){ return p?(d/p*100):null; }
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
+
+/* ---------- Bootstrap ---------- */
+document.getElementById('loadDemo').addEventListener('click', loadDemo);
+async function loadDemo() {
+  showOverlay('Generating demo data…');
+  await new Promise(r=>setTimeout(r,30));
+  RAW = generateDemoData();
+  enrichRows(RAW);
+  populateFilters();
+  populateCompanySelect();
+  populateRateGrid();
+  // Default periods to latest data months
+  const dates = RAW.map(r=>r._date || r.CreatedAt).sort((a,b)=>a-b);
+  const latest = dates[dates.length-1];
+  const curr = new Date(latest.getFullYear(), latest.getMonth(), 1);
+  const prev = new Date(curr); prev.setMonth(prev.getMonth()-1);
+  document.getElementById('currMonth').value = `${curr.getFullYear()}-${String(curr.getMonth()+1).padStart(2,'0')}`;
+  document.getElementById('prevMonth').value = `${prev.getFullYear()}-${String(prev.getMonth()+1).padStart(2,'0')}`;
+  document.getElementById('placeholder').style.display = 'none';
+  document.getElementById('appBody').style.display = 'block';
+  document.getElementById('filterPanel').style.display = 'block';
+  document.getElementById('status') && (document.getElementById('status').textContent = `${RAW.length} rows · ${new Set(RAW.map(r=>r.CompanyName)).size} companies`);
+  renderAll();
+  hideOverlay();
+}
+
+/* ---------- Filter UI ---------- */
+function populateFilters() {
+  renderChecklist('mg', uniqueSorted(RAW.map(r=>r.ModelGrade).filter(Boolean)));
+  renderChecklist('grade', uniqueSorted(RAW.map(r=>r.Grade).filter(Boolean)));
+  renderChecklist('status', uniqueSorted(RAW.map(r=>r.OrderStatus).filter(Boolean)));
+  renderChecklist('country', uniqueSorted(RAW.map(r=>r.Country).filter(Boolean)));
+  renderChecklist('condition', ['Working','Damaged','Unknown']);
+}
+function renderChecklist(name, values) {
+  const el = document.getElementById('cl-'+name);
+  el.innerHTML = '';
+  const sel = FILTERS[name];
+  for (const v of values) {
+    const lab = document.createElement('label');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = sel.size === 0 || sel.has(v);
+    cb.dataset.field = name;
+    cb.dataset.value = v;
+    cb.addEventListener('change', () => { rebuildSetFromDom(name); renderAll(); });
+    lab.appendChild(cb);
+    lab.appendChild(document.createTextNode(' '+v));
+    el.appendChild(lab);
+  }
+}
+function rebuildSetFromDom(name) {
+  const cbs = document.querySelectorAll(`#cl-${name} input[type=checkbox]`);
+  const anyUnchecked = [...cbs].some(cb=>!cb.checked);
+  if (!anyUnchecked) FILTERS[name] = new Set();
+  else {
+    const s = new Set();
+    for (const cb of cbs) if (cb.checked) s.add(cb.dataset.value);
+    FILTERS[name] = s;
+  }
+}
+document.querySelectorAll('[data-checkall]').forEach(b => b.addEventListener('click', () => {
+  const f = b.dataset.checkall; document.querySelectorAll(`#cl-${f} input`).forEach(c=>c.checked=true); FILTERS[f]=new Set(); renderAll();
+}));
+document.querySelectorAll('[data-checknone]').forEach(b => b.addEventListener('click', () => {
+  const f = b.dataset.checknone; document.querySelectorAll(`#cl-${f} input`).forEach(c=>c.checked=false); FILTERS[f]=new Set(['__none__']); renderAll();
+}));
+document.querySelectorAll('.search').forEach(inp => inp.addEventListener('input', e => {
+  const target = e.target.dataset.target;
+  if (!target) return;
+  const q = e.target.value.toLowerCase();
+  document.querySelectorAll(`#cl-${target} label`).forEach(lab => {
+    lab.style.display = lab.textContent.toLowerCase().includes(q) ? '' : 'none';
+  });
+}));
+document.querySelectorAll('[data-mgmode]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-mgmode]').forEach(x => {
+    x.classList.remove('active');
+    x.style.background = '#fff'; x.style.borderColor = 'var(--border)'; x.style.color = 'var(--text)';
+  });
+  b.classList.add('active');
+  b.style.background = 'var(--accent-soft)'; b.style.borderColor = 'var(--accent)'; b.style.color = 'var(--accent)';
+  FILTERS.mgMode = b.dataset.mgmode;
+  FILTERS.mg = new Set();
+  renderChecklist('mg', uniqueSorted(RAW.map(r=>b.dataset.mgmode==='model'?r.ModelName:r.ModelGrade).filter(Boolean)));
+  renderAll();
+}));
+document.getElementById('companySelect').addEventListener('change', e => { SELECTED_COMPANY = e.target.value; renderAll(); });
+['currMonth','prevMonth'].forEach(id => document.getElementById(id).addEventListener('change', renderAll));
+
+/* Pricing-mode filters (chip groups) */
+document.querySelectorAll('#categoryChips .chip').forEach(c => c.addEventListener('click', () => {
+  const v = c.dataset.cat;
+  if (v === 'All') {
+    document.querySelectorAll('#categoryChips .chip').forEach(x=>x.classList.remove('active'));
+    c.classList.add('active');
+    PRICING_FILTERS.categories = new Set(['All']);
+  } else {
+    document.querySelector('#categoryChips .chip[data-cat="All"]').classList.remove('active');
+    if (c.classList.contains('active')) { c.classList.remove('active'); PRICING_FILTERS.categories.delete(v); }
+    else { c.classList.add('active'); PRICING_FILTERS.categories.add(v); }
+    if (PRICING_FILTERS.categories.size === 0) {
+      document.querySelector('#categoryChips .chip[data-cat="All"]').classList.add('active');
+      PRICING_FILTERS.categories = new Set(['All']);
+    }
+  }
+  renderAll();
+}));
+document.querySelectorAll('#dateChips .chip').forEach(c => c.addEventListener('click', () => {
+  document.querySelectorAll('#dateChips .chip').forEach(x=>x.classList.remove('active'));
+  c.classList.add('active');
+  PRICING_FILTERS.dateRange = c.dataset.d;
+  renderAll();
+}));
+document.querySelectorAll('#priceChips .chip').forEach(c => c.addEventListener('click', () => {
+  document.querySelectorAll('#priceChips .chip').forEach(x=>x.classList.remove('active'));
+  c.classList.add('active');
+  PRICING_FILTERS.priceLock = c.dataset.pl;
+  renderAll();
+}));
+const modelInputEl = document.getElementById('modelInput');
+modelInputEl.addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    const v = modelInputEl.value.trim();
+    if (v && !PRICING_FILTERS.tokens.includes(v)) PRICING_FILTERS.tokens.push(v);
+    modelInputEl.value = '';
+    renderModelTokens();
+    renderAll();
+  }
+});
+function renderModelTokens() {
+  const host = document.getElementById('modelTokens');
+  host.innerHTML = '';
+  for (const t of PRICING_FILTERS.tokens) {
+    const chip = document.createElement('span');
+    chip.className = 'chip active';
+    chip.textContent = t + ' ';
+    const x = document.createElement('span');
+    x.textContent = '×';
+    x.style.cursor = 'pointer';
+    x.style.marginLeft = '4px';
+    x.onclick = () => { PRICING_FILTERS.tokens = PRICING_FILTERS.tokens.filter(x => x !== t); renderModelTokens(); renderAll(); };
+    chip.appendChild(x);
+    host.appendChild(chip);
+  }
+}
+
+/* Currency rates editor */
+function populateRateGrid() {
+  const grid = document.getElementById('rateGrid');
+  grid.innerHTML = '';
+  for (const [k,v] of Object.entries(RATES)) {
+    const lab = document.createElement('label');
+    lab.innerHTML = `<span>${k}</span>`;
+    const inp = document.createElement('input');
+    inp.type='number'; inp.step='0.0001'; inp.min='0'; inp.value=v; inp.dataset.curr=k;
+    inp.addEventListener('change', () => {
+      const n = parseFloat(inp.value);
+      if (!isNaN(n) && n>0) { RATES[k] = n; for (const r of RAW) r.rate = RATES[(r.Currency||'USD').toUpperCase()] ?? 1; recomputeDerived(); renderAll(); }
+    });
+    lab.appendChild(inp);
+    grid.appendChild(lab);
+  }
+}
+document.getElementById('resetRates').addEventListener('click', e => {
+  e.preventDefault();
+  const defaults = {USD:1.0,AUD:0.6500,EUR:1.1628,AED:0.2723,GBP:1.3514,JPY:0.00661,CAD:0.7143};
+  Object.assign(RATES, defaults);
+  populateRateGrid();
+  for (const r of RAW) r.rate = RATES[(r.Currency||'USD').toUpperCase()] ?? 1;
+  recomputeDerived(); renderAll();
+});
+document.getElementById('updateRates').addEventListener('click', () => {
+  recomputeDerived(); renderAll();
+});
+
+function recomputeDerived() {
+  for (const r of RAW) {
+    r.perUnitUsd = r.perUnit * r.rate;
+    r.USD_Total = r.Total * r.rate;
+  }
+}
+
+function populateCompanySelect() {
+  const sel = document.getElementById('companySelect');
+  const cs = uniqueSorted(RAW.map(r=>r.CompanyName));
+  sel.innerHTML = '<option value="">All companies</option>' + cs.map(c=>`<option>${escapeHtml(c)}</option>`).join('');
+}
+
+/* ---------- Mode toggle + tab visibility ---------- */
+document.querySelectorAll('#modeToggle button').forEach(b => b.addEventListener('click', () => {
+  MODE = b.dataset.mode;
+  document.querySelectorAll('#modeToggle button').forEach(x => x.classList.remove('active'));
+  b.classList.add('active');
+  applyModeVisibility();
+  renderAll();
+}));
+function applyModeVisibility() {
+  // Show/hide filter groups by mode
+  document.querySelectorAll('[data-mode-show]').forEach(el => {
+    const modes = el.dataset.modeShow.split(',');
+    el.style.display = modes.includes(MODE) ? '' : 'none';
+  });
+  // Show/hide tabs by mode
+  document.querySelectorAll('.tabs button[data-mode-show]').forEach(b => {
+    const modes = b.dataset.modeShow.split(',');
+    b.style.display = modes.includes(MODE) ? '' : 'none';
+  });
+  // Switch to first visible tab in the active mode
+  const visibleTab = [...document.querySelectorAll('.tabs button[data-mode-show]')].find(b => {
+    const modes = b.dataset.modeShow.split(',');
+    return modes.includes(MODE);
+  });
+  if (visibleTab) visibleTab.click();
+}
+
+/* ---------- Tabs ---------- */
+document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');
+  document.getElementById('tab-'+b.dataset.tab).classList.add('active');
+  if (MODE === 'monthly' && b.dataset.tab === 'dashboard') { chartModels?.resize(); chartRegion?.resize(); }
+}));
+
+/* ---------- Active-row filtering (combines monthly + pricing filters) ---------- */
+function activeRows() {
+  return RAW.filter(r => {
+    // Shared monthly filters
+    if (FILTERS.grade.size && !FILTERS.grade.has(r.Grade)) return false;
+    if (FILTERS.status.size && !FILTERS.status.has(r.OrderStatus)) return false;
+    if (FILTERS.country.size && !FILTERS.country.has(r.Country)) return false;
+    if (!FILTERS.condition.has(r.Condition)) return false;
+    if (FILTERS.mg.size) {
+      const key = FILTERS.mgMode==='model' ? r.ModelName : r.ModelGrade;
+      if (!FILTERS.mg.has(key)) return false;
+    }
+    if (SELECTED_COMPANY && r.CompanyName !== SELECTED_COMPANY) return false;
+    // Pricing-mode filters
+    if (!PRICING_FILTERS.categories.has('All')) {
+      if (!PRICING_FILTERS.categories.has(r.Category)) return false;
+    }
+    if (PRICING_FILTERS.tokens.length > 0) {
+      const nm = r.ModelName.toLowerCase();
+      if (!PRICING_FILTERS.tokens.some(t => nm.includes(t.toLowerCase()))) return false;
+    }
+    // date range (anchored to latest data date)
+    if (PRICING_FILTERS.dateRange !== 'all') {
+      const days = parseInt(PRICING_FILTERS.dateRange, 10);
+      const latest = RAW.map(r=>r.CreatedAt).reduce((a,b)=> a>b?a:b, new Date(0));
+      const cutoff = new Date(latest); cutoff.setDate(cutoff.getDate() - (days-1));
+      if (r.CreatedAt < cutoff) return false;
+    }
+    // price lock
+    const isPreOrder = r.SaleType === 'Pre-Order';
+    if (PRICING_FILTERS.priceLock === 'exclude' && isPreOrder) return false;
+    if (PRICING_FILTERS.priceLock === 'only' && !isPreOrder) return false;
+    return true;
+  });
+}
+function splitByPeriod(rows) {
+  const cm = document.getElementById('currMonth').value;
+  const pm = document.getElementById('prevMonth').value;
+  const [cs,ce] = cm ? monthBounds(cm) : [null,null];
+  const [ps,pe] = pm ? monthBounds(pm) : [null,null];
+  return {
+    curr: cs ? rows.filter(r=>r.CreatedAt>=cs && r.CreatedAt<=ce) : [],
+    prev: ps ? rows.filter(r=>r.CreatedAt>=ps && r.CreatedAt<=pe) : [],
+    currLabel: cm || '(none)', prevLabel: pm || '(none)'
+  };
+}
+function monthBounds(ym){
+  const [y,m]=ym.split('-').map(Number);
+  return [new Date(y,m-1,1), new Date(y,m,0,23,59,59)];
+}
+
+/* ---------- Render dispatch ---------- */
+function renderAll() {
+  if (RAW.length === 0) return;
+  const rows = activeRows();
+  const {curr,prev,currLabel,prevLabel} = splitByPeriod(rows);
+  const label = SELECTED_COMPANY || 'All companies';
+  document.getElementById('breadcrumb').innerHTML = `<b>${escapeHtml(label)}</b> · ${currLabel} vs ${prevLabel}`;
+  if (MODE === 'monthly') {
+    renderKPIs(curr,prev);
+    renderCharts(curr,prev);
+    renderCountryTable(curr,prev);
+    renderModelGradeSplit(curr,prev,currLabel,prevLabel);
+    renderExcelLayout(curr,prev,currLabel,prevLabel);
+  } else {
+    renderASP(rows);
+    renderSalesByModel(rows);
+  }
+  renderRaw(rows);
+}
+
+/* ---------- Monthly-mode renders ---------- */
+function renderKPIs(curr,prev) {
+  const cq=sumQty(curr),cu=sumUSD(curr),pq=sumQty(prev),pu=sumUSD(prev);
+  const wq=qtyByCond(curr,'Working'),dq=qtyByCond(curr,'Damaged');
+  const kpis = [
+    {label:'Total Qty', value:fmtNum(cq), delta:cq-pq, prev:pq},
+    {label:'Working Qty', value:fmtNum(wq), delta:wq-qtyByCond(prev,'Working'), prev:qtyByCond(prev,'Working')},
+    {label:'Damaged Qty', value:fmtNum(dq), delta:dq-qtyByCond(prev,'Damaged'), prev:qtyByCond(prev,'Damaged')},
+    {label:'Total USD', value:fmtUSD(cu), delta:cu-pu, prev:pu, money:true},
+  ];
+  document.getElementById('kpiGrid').innerHTML = kpis.map(k=>{
+    const p=momPct(k.delta,k.prev); const cls=k.delta>0?'up':(k.delta<0?'down':'flat');
+    const arrow=k.delta>0?'▲':(k.delta<0?'▼':'→');
+    return `<div class="kpi"><div class="label">${k.label}</div><div class="value">${k.value}</div><div class="delta ${cls}">${arrow} ${k.money?fmtUSD(Math.abs(k.delta)):fmtNum(Math.abs(Math.round(k.delta)))} (${fmtPct(p)})</div></div>`;
+  }).join('');
+}
+function renderCharts(curr, prev) {
+  const field = FILTERS.mgMode==='model'?'ModelName':'ModelGrade';
+  const cG = groupBy(curr, r=>r[field]||'(blank)');
+  const pG = groupBy(prev, r=>r[field]||'(blank)');
+  const keys = [...new Set([...cG.keys(),...pG.keys()])].sort((a,b)=>sumUSD(cG.get(b)||[])-sumUSD(cG.get(a)||[])).slice(0,10);
+  const ctx1 = document.getElementById('chartModels').getContext('2d');
+  if (chartModels) chartModels.destroy();
+  chartModels = new Chart(ctx1, {
+    type:'bar',
+    data:{ labels:keys, datasets:[
+      {label:'Current', data:keys.map(k=>sumUSD(cG.get(k)||[])), backgroundColor:'#2563eb'},
+      {label:'Compare', data:keys.map(k=>sumUSD(pG.get(k)||[])), backgroundColor:'#cbd5e1'},
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}},scales:{y:{ticks:{callback:v=>'$'+v.toLocaleString()}}}}
+  });
+  const rG = groupBy(curr, r=>r.Country||'(blank)');
+  const rEntries = [...rG.entries()].sort((a,b)=>sumUSD(b[1])-sumUSD(a[1]));
+  const ctx2 = document.getElementById('chartRegion').getContext('2d');
+  if (chartRegion) chartRegion.destroy();
+  chartRegion = new Chart(ctx2, {
+    type:'pie',
+    data:{ labels:rEntries.map(e=>e[0]), datasets:[{data:rEntries.map(e=>sumUSD(e[1])), backgroundColor:rEntries.map((_,i)=>`hsl(${i*47%360} 65% 55%)`)}] },
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right'}}}
+  });
+}
+function renderCountryTable(curr, prev) {
+  const cG = groupBy(curr, r=>r.Country||'(blank)');
+  const pG = groupBy(prev, r=>r.Country||'(blank)');
+  const keys = [...new Set([...cG.keys(),...pG.keys()])].sort();
+  const total = sumUSD(curr);
+  const rows = keys.map(k => {
+    const c = cG.get(k)||[], p = pG.get(k)||[];
+    return {country:k, cQ:sumQty(c), pQ:sumQty(p), cUSD:sumUSD(c), pUSD:sumUSD(p),
+      pct: total?sumUSD(c)/total*100:0,
+      qd:sumQty(c)-sumQty(p), ud:sumUSD(c)-sumUSD(p),
+      qp:momPct(sumQty(c)-sumQty(p), sumQty(p)),
+      up:momPct(sumUSD(c)-sumUSD(p), sumUSD(p))};
+  });
+  const tot = rows.reduce((a,r)=>({cQ:a.cQ+r.cQ,pQ:a.pQ+r.pQ,cUSD:a.cUSD+r.cUSD,pUSD:a.pUSD+r.pUSD}),{cQ:0,pQ:0,cUSD:0,pUSD:0});
+  const cols = [
+    ['Country','country'],['Qty (Curr)','cQ',fmtNum],['Qty (Prev)','pQ',fmtNum],
+    ['Qty Δ','qd',fmtNum],['Qty %','qp',fmtPct],['USD (Curr)','cUSD',fmtUSD],
+    ['USD (Prev)','pUSD',fmtUSD],['USD Δ','ud',fmtUSD],['USD %','up',fmtPct],
+    ['% of total','pct',v=>v.toFixed(2)+'%']
+  ];
+  let h = '<thead><tr>'+cols.map(c=>`<th class="${c[2]?'num':''}">${c[0]}</th>`).join('')+'</tr></thead><tbody>';
+  for (const r of rows) h += '<tr>'+cols.map(c=>`<td class="${c[2]?'num':''}">${c[2]?c[2](r[c[1]]):r[c[1]]}</td>`).join('')+'</tr>';
+  h += `<tr class="total-row"><td>Total</td><td class="num">${fmtNum(tot.cQ)}</td><td class="num">${fmtNum(tot.pQ)}</td><td class="num">${fmtNum(tot.cQ-tot.pQ)}</td><td class="num">${fmtPct(momPct(tot.cQ-tot.pQ,tot.pQ))}</td><td class="num">${fmtUSD(tot.cUSD)}</td><td class="num">${fmtUSD(tot.pUSD)}</td><td class="num">${fmtUSD(tot.cUSD-tot.pUSD)}</td><td class="num">${fmtPct(momPct(tot.cUSD-tot.pUSD,tot.pUSD))}</td><td class="num"></td></tr>`;
+  h += '</tbody>';
+  document.getElementById('tblCountry').innerHTML = h;
+}
+function renderModelGradeSplit(curr, prev, currLabel, prevLabel) {
+  const field = FILTERS.mgMode==='model'?'ModelName':'ModelGrade';
+  const lbl = FILTERS.mgMode==='model'?'Model':'Model Grade';
+  document.getElementById('mgCurLabel').textContent = currLabel;
+  document.getElementById('mgPrevLabel').textContent = prevLabel;
+  function build(rows, target){
+    const g = groupBy(rows, r=>r[field]||'(blank)');
+    const keys = [...g.keys()].sort((a,b)=>sumQty(g.get(b))-sumQty(g.get(a)));
+    const data = keys.map(k => ({mg:k, q:sumQty(g.get(k)), u:sumUSD(g.get(k))}));
+    const tot = data.reduce((a,r)=>({q:a.q+r.q,u:a.u+r.u}),{q:0,u:0});
+    let h = `<thead><tr><th>${lbl}</th><th class="num">Quantity</th><th class="num">Total (USD)</th></tr></thead><tbody>`;
+    for (const r of data) h += `<tr><td>${escapeHtml(r.mg)}</td><td class="num">${fmtNum(r.q)}</td><td class="num">${fmtUSD(r.u)}</td></tr>`;
+    h += `<tr class="total-row"><td>Total</td><td class="num">${fmtNum(tot.q)}</td><td class="num">${fmtUSD(tot.u)}</td></tr></tbody>`;
+    document.getElementById(target).innerHTML = h;
+  }
+  build(curr,'tblMGCurr');
+  build(prev,'tblMGPrev');
+}
+function renderExcelLayout(curr, prev, currLabel, prevLabel) {
+  const host = document.getElementById('excelLayout');
+  const cG = groupBy(curr, r=>r.CompanyName);
+  const pG = groupBy(prev, r=>r.CompanyName);
+  const keys = SELECTED_COMPANY ? [SELECTED_COMPANY] : [...new Set([...cG.keys(),...pG.keys()])].sort();
+  let h = '';
+  for (const company of keys) {
+    const cc = cG.get(company)||[], cp = pG.get(company)||[];
+    if (!cc.length && !cp.length) continue;
+    h += `<div style="border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:14px;background:#fafbfc">
+      <h3 style="margin:0 0 8px;font-size:14px">🏢 ${escapeHtml(company)}</h3>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Current: ${escapeHtml(currLabel)} · Compare: ${escapeHtml(prevLabel)}</div>
+      <h4 style="font-size:12px;margin:8px 0 4px">Country breakdown</h4>
+      <div class="table-wrap"><table><thead><tr><th>Country</th><th class="num">Qty</th><th class="num">USD</th></tr></thead><tbody>`;
+    const cBy = groupBy(cc, r=>r.Country);
+    for (const ct of [...cBy.keys()].sort()) {
+      const c = cBy.get(ct);
+      h += `<tr><td>${escapeHtml(ct)}</td><td class="num">${fmtNum(sumQty(c))}</td><td class="num">${fmtUSD(sumUSD(c))}</td></tr>`;
+    }
+    h += `</tbody></table></div>
+      <h4 style="font-size:12px;margin:14px 0 4px">Model-grade summary — current</h4>
+      <div class="table-wrap"><table><thead><tr><th>Model Grade</th><th class="num">Qty</th><th class="num">USD</th></tr></thead><tbody>`;
+    const mg = groupBy(cc, r=>r.ModelGrade);
+    for (const k of [...mg.keys()].sort((a,b)=>sumQty(mg.get(b))-sumQty(mg.get(a)))) {
+      const v = mg.get(k);
+      h += `<tr><td>${escapeHtml(k)}</td><td class="num">${fmtNum(sumQty(v))}</td><td class="num">${fmtUSD(sumUSD(v))}</td></tr>`;
+    }
+    h += `</tbody></table></div></div>`;
+  }
+  host.innerHTML = h || '<div style="color:var(--muted)">No data for the selected filters.</div>';
+}
+
+/* ---------- Pricing-mode renders ---------- */
+function renderASP(rows) {
+  const host = document.getElementById('aspContent');
+  if (!rows.length) { host.innerHTML = '<div style="color:var(--muted)">No results.</div>'; return; }
+  // Group by country × model grade, keep latest
+  const groups = {};
+  for (const r of rows) {
+    const c = r.Country||'Unknown', mg = r.ModelGrade;
+    if (!groups[c]) groups[c] = {};
+    const existing = groups[c][mg];
+    if (!existing || r.CreatedAt > existing.CreatedAt) groups[c][mg] = r;
+  }
+  let h = '';
+  for (const c of Object.keys(groups).sort()) {
+    h += `<div class="asp-country"><h3>${escapeHtml(c)}</h3>`;
+    h += '<div class="table-wrap"><table><thead><tr><th>Model Grade</th><th class="num">Last ASP (USD)</th><th>Company</th><th>Date</th></tr></thead><tbody>';
+    const entries = Object.values(groups[c]).sort((a,b)=>a.ModelGrade.localeCompare(b.ModelGrade));
+    for (const e of entries) {
+      h += `<tr><td>${escapeHtml(e.ModelGrade)}</td><td class="num">${fmtUSD(e.perUnitUsd)}</td><td>${escapeHtml(e.CompanyName)}</td><td>${e.CreatedAt.toISOString().split('T')[0]}</td></tr>`;
+    }
+    h += '</tbody></table></div></div>';
+  }
+  host.innerHTML = h;
+}
+function renderSalesByModel(rows) {
+  const host = document.getElementById('salesModelContent');
+  if (!rows.length) { host.innerHTML = '<div style="color:var(--muted)">No results.</div>'; return; }
+  const byCountry = {};
+  for (const r of rows) {
+    const c = r.Country||'Unknown';
+    if (!byCountry[c]) byCountry[c] = {};
+    if (!byCountry[c][r.ModelGrade]) byCountry[c][r.ModelGrade] = [];
+    byCountry[c][r.ModelGrade].push(r);
+  }
+  const countries = Object.keys(byCountry).sort();
+  let tabs = '<div class="country-tabs">';
+  countries.forEach((c,i)=>{ tabs += `<button class="${i===0?'active':''}" data-cc="${escapeHtml(c)}">${escapeHtml(c)}</button>`; });
+  tabs += '</div>';
+  let tables = '';
+  countries.forEach((c,i) => {
+    tables += `<div class="country-table ${i===0?'active':''}" data-cc="${escapeHtml(c)}">`;
+    tables += '<div class="table-wrap"><table><thead><tr><th>Model Grade</th><th class="num">ASP (USD)</th><th class="num">Qty</th><th>Company</th></tr></thead><tbody>';
+    const grades = Object.keys(byCountry[c]).sort();
+    for (const g of grades) {
+      const items = byCountry[c][g].sort((a,b)=>b.CreatedAt - a.CreatedAt);
+      tables += `<tr class="asp-grade"><td colspan="4">${escapeHtml(g)}</td></tr>`;
+      for (const it of items) {
+        tables += `<tr><td class="indent">${it.CreatedAt.toISOString().split('T')[0]}</td><td class="num">${fmtUSD(it.perUnitUsd)}</td><td class="num">${fmtNum(it.Quantity)}</td><td>${escapeHtml(it.CompanyName)}</td></tr>`;
+      }
+    }
+    tables += '</tbody></table></div></div>';
+  });
+  host.innerHTML = tabs + tables;
+  host.querySelectorAll('.country-tabs button').forEach(b => b.addEventListener('click', () => {
+    const cc = b.dataset.cc;
+    host.querySelectorAll('.country-tabs button').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+    host.querySelectorAll('.country-table').forEach(t => t.classList.toggle('active', t.dataset.cc === cc));
+  }));
+}
+
+function renderRaw(rows) {
+  const cols = ['ID','CreatedAt','CompanyName','Country','SKU','ModelGrade','Condition','OrderStatus','SaleType','Currency','Quantity','Total','perUnitUsd','USD_Total'];
+  let h = '<thead><tr>'+cols.map(c=>`<th>${c}</th>`).join('')+'</tr></thead><tbody>';
+  for (const r of rows) {
+    h += '<tr>'+cols.map(c=>{
+      let v = r[c];
+      if (v instanceof Date) v = v.toISOString().split('T')[0];
+      else if (typeof v === 'number') v = ['perUnitUsd','USD_Total'].includes(c) ? v.toFixed(2) : v;
+      const isNum = ['Quantity','Total','perUnitUsd','USD_Total'].includes(c);
+      return `<td class="${isNum?'num':''}">${escapeHtml(String(v??''))}</td>`;
+    }).join('')+'</tr>';
+  }
+  h += '</tbody>';
+  document.getElementById('tblRaw').innerHTML = h;
+}
+
+/* ---------- Overlay ---------- */
+function showOverlay(m){ document.getElementById('overlayMsg').textContent=m; document.getElementById('overlay').classList.add('show'); }
+function hideOverlay(){ document.getElementById('overlay').classList.remove('show'); }
+
+/* ---------- Library check ---------- */
+setTimeout(()=>{
+  if (typeof XLSX==='undefined'||typeof Chart==='undefined'||typeof JSZip==='undefined') {
+    document.body.insertAdjacentHTML('afterbegin','<div style="position:fixed;inset:0;background:#fff;padding:40px;z-index:999;text-align:center"><h2>Libraries failed to load</h2><p>This demo needs an internet connection on first load.</p></div>');
+  }
+}, 1500);
+</script>
+</body>
+</html>
