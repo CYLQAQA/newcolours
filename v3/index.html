@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sales Dashboard</title>
+
+<!--
+  Third-party libraries: CDN with pinned versions + SHA-384 integrity hashes.
+  jsdelivr is primary, cdnjs is fallback. If both fail, an error panel shows.
+  SheetJS (xlsx)  - parse + write .xlsx
+  Chart.js        - dashboard charts
+  JSZip           - multi-file .zip export
+-->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"
+        integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw"
+        crossorigin="anonymous"
+        onerror="window.__libFail='xlsx'"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"
+        crossorigin="anonymous"
+        onerror="window.__libFail='xlsx'"></script>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"
+        integrity="sha384-JUh163oCRItcbPme8pYnROHQMC6fNKTBWtRG3I3I0erJkzNgL7uxKlNwcrcFKeqF"
+        crossorigin="anonymous"
+        onerror="window.__libFail='chart'"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"
+        crossorigin="anonymous"
+        onerror="window.__libFail='chart'"></script>
+
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"
+        integrity="sha384-+mbV2IY1Zk/X1p/nWllGySJSUN8uMs+gUAN10Or95UBH0fpj6GfKgPmgC5EXieXG"
+        crossorigin="anonymous"
+        onerror="window.__libFail='jszip'"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"
+        crossorigin="anonymous"
+        onerror="window.__libFail='jszip'"></script>
+
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="lib-error">
+  <h2>Couldn't load required libraries</h2>
+  <p>This dashboard needs an internet connection the first time it loads SheetJS, Chart.js, and JSZip.<br>
+  Once your browser has cached them, it will work offline.</p>
+  <p>Please check your connection and reload the page.</p>
+</div>
+
+<header>
+  <h1 style="display:flex;align-items:center;gap:8px">
+    <img src="employer.companyId253A722650.png" alt="Logo" style="height:40px;width:auto;display:block">
+  </h1>
+  <div class="mode-toggle" id="modeToggle">
+    <button data-mode="monthly" class="active">📈 Monthly Report</button>
+    <button data-mode="pricing">💲 Last Selling Price</button>
+  </div>
+  <div class="filepick">
+    <label class="btn secondary">
+      Sales file
+      <input type="file" id="salesFile" accept=".xlsx,.xls" hidden>
+    </label>
+    <label class="btn secondary">
+      Name-mapping file
+      <input type="file" id="mappingFile" accept=".xlsx,.xls" hidden>
+    </label>
+  </div>
+  <div class="navpick">
+    <label for="comboInput" style="font-size:12px;color:var(--muted)">Company:</label>
+    <div class="combo" id="companyCombo">
+      <input type="text" class="combo-input" id="comboInput" placeholder="Search a company…" autocomplete="off" disabled>
+      <div class="combo-list" id="comboList"></div>
+    </div>
+    <button class="btn-mini" id="companyAllBtn" title="Show all companies (clear the company filter)" style="margin-left:4px">All</button>
+  </div>
+  <div class="filepick" style="margin-left:auto">
+    <button class="btn secondary" id="snapshotBtn" disabled>📸 Snapshot</button>
+    <button class="btn secondary" id="exportAllBtn" disabled>⬇ Export all companies</button>
+    <button class="btn" id="exportBtn" disabled>⬇ Export this company</button>
+  </div>
+  <span id="status">Pick both files to begin.</span>
+</header>
+
+<div id="overlay"><div class="spinner"></div><div id="overlayMsg">Loading…</div></div>
+
+<div class="layout" id="layout">
+  <aside class="filters" id="filterPanel" style="display:none">
+    <div class="filters-head">
+      <h3>Filters</h3>
+      <div style="display:flex;gap:4px;align-items:center">
+        <button class="btn-mini" id="resetFilters" title="Reset all filters to default (no filter)">↺ Reset</button>
+        <button class="filter-collapse-btn" id="filterCollapseBtn" title="Hide filters">⟨</button>
+      </div>
+    </div>
+
+    <details class="filter-group">
+      <summary>Model / Model Grade</summary>
+      <div class="toggle-row" style="display:flex;gap:6px;margin-bottom:6px">
+        <button data-mgmode="model" class="btn-mini" style="flex:1;background:var(--accent-soft);border-color:var(--accent);color:var(--accent)">By model</button>
+        <button data-mgmode="modelgrade" class="btn-mini" style="flex:1">By model-grade</button>
+      </div>
+      <input class="search" data-target="mg" placeholder="Search…">
+      <div class="controls"><button class="btn-mini" data-checkall="mg">All</button><button class="btn-mini" data-checknone="mg">None</button></div>
+      <div class="checklist" id="cl-mg"></div>
+    </details>
+
+    <details class="filter-group">
+      <summary>Grade (raw)</summary>
+      <input class="search" data-target="grade" placeholder="Search grades…">
+      <div class="controls"><button class="btn-mini" data-checkall="grade">All</button><button class="btn-mini" data-checknone="grade">None</button></div>
+      <div class="checklist" id="cl-grade"></div>
+    </details>
+
+    <div class="filter-group">
+      <span class="label">Condition</span>
+      <div class="checklist" id="cl-condition"></div>
+    </div>
+
+    <details class="filter-group">
+      <summary>Order Status</summary>
+      <input class="search" data-target="status" placeholder="Search status…">
+      <div class="controls"><button class="btn-mini" data-checkall="status">All</button><button class="btn-mini" data-checknone="status">None</button></div>
+      <div class="checklist" id="cl-status"></div>
+    </details>
+
+    <details class="filter-group">
+      <summary>Country</summary>
+      <input class="search" data-target="country" placeholder="Search countries…">
+      <div class="controls"><button class="btn-mini" data-checkall="country">All</button><button class="btn-mini" data-checknone="country">None</button></div>
+      <div class="checklist" id="cl-country"></div>
+    </details>
+
+    <div class="filter-group">
+      <span class="label">Period (month compare)</span>
+      <div class="period-row">
+        <div>
+          <label>Current</label>
+          <input type="month" id="currMonth">
+        </div>
+        <div>
+          <label>Compare</label>
+          <input type="month" id="prevMonth">
+        </div>
+      </div>
+    </div>
+
+    <details class="filter-group">
+      <summary>Free date range (overrides months)</summary>
+      <label style="font-size:13px"><input type="checkbox" id="useRange"> Enable custom range</label>
+      <div class="period-row" style="margin-top:6px">
+        <div><label>From</label><input type="date" id="rangeStart"></div>
+        <div><label>To</label><input type="date" id="rangeEnd"></div>
+      </div>
+    </details>
+
+    <details class="filter-group" open data-mode-show="pricing">
+      <summary>Date Range (relative)</summary>
+      <div class="chip-group" id="dateChips" style="display:flex;flex-wrap:wrap;gap:5px">
+        <span class="chip" data-d="2">Last 2 Days</span>
+        <span class="chip" data-d="7">Last 7 Days</span>
+        <span class="chip" data-d="30">1 Month</span>
+        <span class="chip" data-d="90">3 Months</span>
+        <span class="chip active" data-d="all">All</span>
+      </div>
+    </details>
+
+    <details class="filter-group" open data-mode-show="pricing">
+      <summary>Category</summary>
+      <div class="chip-group" id="categoryChips" style="display:flex;flex-wrap:wrap;gap:5px">
+        <span class="chip active" data-cat="All">All</span>
+        <span class="chip" data-cat="Smartphones">Phones</span>
+        <span class="chip" data-cat="Laptops">Laptops</span>
+        <span class="chip" data-cat="Tablets">Tablets</span>
+        <span class="chip" data-cat="Wearables">Wearables</span>
+        <span class="chip" data-cat="Accessories">Accessories</span>
+        <span class="chip" data-cat="Computers">Computers</span>
+        <span class="chip" data-cat="Environment Products">Environment</span>
+        <span class="chip" data-cat="Other">Other</span>
+      </div>
+    </details>
+
+    <details class="filter-group" open data-mode-show="pricing">
+      <summary>Price Lock (Pre-Order)</summary>
+      <div class="chip-group" id="priceChips" style="display:flex;flex-wrap:wrap;gap:5px">
+        <span class="chip active" data-pl="all">Include All</span>
+        <span class="chip" data-pl="exclude">Exclude Pre-Order</span>
+        <span class="chip" data-pl="only">Only Pre-Order</span>
+      </div>
+    </details>
+
+    <details class="filter-group" open data-mode-show="pricing">
+      <summary>Model search (OR tokens)</summary>
+      <input class="search" id="modelInput" placeholder="Type model name and press Enter" data-mode-show="pricing">
+      <div id="modelTokens" style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px"></div>
+    </details>
+
+    <details class="filter-group" open>
+      <summary>Excluded companies</summary>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Rows whose company name <i>contains</i> any of these substrings (case-insensitive) are filtered out from the database.</div>
+      <div id="excludedChips" style="display:flex;flex-wrap:wrap;gap:5px"></div>
+      <div style="display:flex;gap:6px;margin-top:8px">
+        <input type="text" id="exclusionInput" placeholder="Add pattern…" style="flex:1;padding:5px 8px;border:1px solid var(--border);border-radius:5px;font-size:12px">
+        <button class="btn-mini" id="addExclusion">Add</button>
+      </div>
+    </details>
+
+    <details class="filter-group" open data-mode-show="pricing">
+      <summary>Currency rates (USD per unit) — <a href="#" id="resetRates" style="font-size:11px;color:var(--accent);text-decoration:none">reset</a></summary>
+      <div class="rate-grid" id="rateGrid" style="margin-top:6px"></div>
+      <button class="btn-mini" id="updateRates" style="margin-top:6px">Update rates</button>
+    </details>
+  </aside>
+
+  <div class="resizer" id="resizer" title="Drag to resize"></div>
+
+  <main>
+    <button class="filter-expand-btn" id="filterExpandBtn" title="Show filters">▸ Show filters</button>
+    <div id="placeholder">
+      <p style="font-size:15px">Pick a <b>sales file</b> and a <b>name-mapping file</b> from the top bar.<br>
+      Everything runs locally in your browser — your data never leaves this machine.</p>
+    </div>
+
+    <div id="appBody" style="display:none">
+      <div class="tabs">
+        <button data-tab="dashboard" class="active" data-mode-show="monthly">📈 Company Dashboard</button>
+        <button data-tab="excel" data-mode-show="monthly">📋 Excel Layout</button>
+        <button data-tab="asp" data-mode-show="pricing">💲 Last ASP</button>
+        <button data-tab="salesmodel" data-mode-show="pricing">🔍 Sales by Model</button>
+        <button data-tab="raw" data-mode-show="both">📄 Raw Data</button>
+        <span class="breadcrumb" id="breadcrumb"></span>
+      </div>
+
+      <div class="tab-content active" id="tab-dashboard">
+        <div class="tab-toolbar">
+          <span class="tab-toolbar-label">Company Dashboard</span>
+          <div style="display:flex;gap:6px">
+            <button class="btn-mini" id="exportCountry">⬇ Country breakdown</button>
+            <button class="btn-mini" id="exportModelGrade">⬇ Model-grade summary</button>
+          </div>
+        </div>
+        <div class="kpi-grid" id="kpiGrid"></div>
+        <div class="chart-row">
+          <div class="chart-box">
+            <h4>Top models by USD (current vs compare)</h4>
+            <div class="chart-container"><canvas id="chartModels"></canvas></div>
+          </div>
+          <div class="chart-box">
+            <h4>Region (country) distribution by USD</h4>
+            <div class="chart-container"><canvas id="chartRegion"></canvas></div>
+          </div>
+        </div>
+        <div class="table-section">
+          <h4>Country breakdown</h4>
+          <div class="table-wrap"><table id="tblCountry"></table></div>
+        </div>
+        <div class="table-section">
+          <h4>Model-grade summary — <span id="mgCurrentLabel"></span> (left) · <span id="mgPrevLabel"></span> (right)</h4>
+          <div class="cols-2">
+            <div>
+              <h5 style="margin:4px 0 6px;font-size:12px;color:var(--muted)" id="mgLeftTitle"></h5>
+              <div class="table-wrap"><table id="tblModelGradeCurr"></table></div>
+            </div>
+            <div>
+              <h5 style="margin:4px 0 6px;font-size:12px;color:var(--muted)" id="mgRightTitle"></h5>
+              <div class="table-wrap"><table id="tblModelGradePrev"></table></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-content" id="tab-excel">
+        <div class="tab-toolbar">
+          <span class="tab-toolbar-label">Excel Layout</span>
+          <button class="btn-mini" id="exportExcelLayout">⬇ Export this layout</button>
+        </div>
+        <div id="excelLayout"></div>
+      </div>
+
+      <div class="tab-content" id="tab-asp">
+        <div class="tab-toolbar">
+          <span class="tab-toolbar-label">Last ASP — <span id="aspScope">all companies</span></span>
+          <div style="display:flex;gap:6px;align-items:center">
+            <span style="color:var(--muted);font-size:11px;margin-left:6px">Export:</span>
+            <button class="btn-mini" id="exportAspAll">⬇ All regions (1 tab)</button>
+            <button class="btn-mini" id="exportAspSplit">⬇ Split by region</button>
+          </div>
+        </div>
+        <div style="margin-bottom:10px;font-size:12px;color:var(--muted)">For each country × model grade, the most recent sale's per-unit USD price. Scope follows the company picker in the top bar; uses the active filters.</div>
+        <div id="aspContent"></div>
+      </div>
+
+      <div class="tab-content" id="tab-salesmodel">
+        <div class="tab-toolbar">
+          <span class="tab-toolbar-label">Sales by Model</span>
+          <div style="display:flex;gap:6px;align-items:center">
+            <span style="color:var(--muted);font-size:11px">Export:</span>
+            <button class="btn-mini" id="exportSalesModelAll">⬇ All regions (1 tab)</button>
+            <button class="btn-mini" id="exportSalesModelSplit">⬇ Split by region</button>
+          </div>
+        </div>
+        <div style="margin-bottom:10px;font-size:12px;color:var(--muted)">Every individual sale nested under its model grade, per country.</div>
+        <div id="salesModelContent"></div>
+      </div>
+
+      <div class="tab-content" id="tab-raw">
+        <div class="tab-toolbar">
+          <span class="tab-toolbar-label">Raw Data</span>
+          <button class="btn-mini" id="exportRaw">⬇ Export raw</button>
+        </div>
+        <div style="margin-bottom:10px;font-size:12px;color:var(--muted)">All filtered rows with computed per-unit USD price.</div>
+        <div class="table-wrap"><table id="tblRaw"></table></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="app.min.js"></script>
+</body>
+</html>
