@@ -41,7 +41,7 @@
 </head>
 <body>
 <h1>Cost Report Cleaner</h1>
-<div class="muted">Import report → load → select Site / Grade / Model / Model Grade → export one of the reports.</div>
+<div class="muted">Import report → load → select Vendor and/or Site / Grade / Model / Model Grade → export one of the reports.</div>
 
 <div class="card">
   <div class="row">
@@ -70,11 +70,13 @@
 <div id="filtersCard" class="card hidden">
   <h3>Filters</h3>
   <div class="filters">
+    <div id="vendorFilterBox" class="filterBox hidden" data-filter="Vendor"><div class="filterHeader"><b>Vendor</b><span><button data-action="all">Check all</button> <button data-action="none">Uncheck all</button></span></div><input class="search" placeholder="Search Vendor..."><div class="filterList"></div></div>
     <div class="filterBox" data-filter="Site"><div class="filterHeader"><b>Site</b><span><button data-action="all">Check all</button> <button data-action="none">Uncheck all</button></span></div><input class="search" placeholder="Search Site..."><div class="filterList"></div></div>
     <div class="filterBox" data-filter="Grade"><div class="filterHeader"><b>Grade</b><span><button data-action="all">Check all</button> <button data-action="none">Uncheck all</button></span></div><input class="search" placeholder="Search Grade..."><div class="filterList"></div></div>
     <div class="filterBox" data-filter="Model"><div class="filterHeader"><b>Model</b><span><button data-action="all">Check all</button> <button data-action="none">Uncheck all</button></span></div><input class="search" placeholder="Search Model..."><div class="filterList"></div></div>
     <div class="filterBox" data-filter="Model Grade"><div class="filterHeader"><b>Model Grade</b><span><button data-action="all">Check all</button> <button data-action="none">Uncheck all</button></span></div><input class="search" placeholder="Search Model Grade..."><div class="filterList"></div></div>
   </div>
+  <div id="activeFilterSummary" class="muted" style="margin-top:12px"></div>
 </div>
 
 <div id="outputCard" class="card hidden">
@@ -125,8 +127,11 @@ let currentOutput = [];
 let offerByModelGrade = new Map();
 
 const ORDER_LOCATION_CODE = 'HK_HTR_B2B_VZW';
-const filterFields = ['Site', 'Grade', 'Model', 'Model Grade'];
+const BASE_FILTER_FIELDS = ['Site', 'Grade', 'Model', 'Model Grade'];
+let filterFields = [...BASE_FILTER_FIELDS];
 let filterSelections = {};
+let hasVendorColumn = false;
+let vendorColumnName = '';
 
 const requiredCols = ['Site', 'Key Product', 'Short SKU', 'SKU', 'Paid price', 'Currency', 'IMEI'];
 
@@ -156,7 +161,17 @@ function buildHeaderMap(headers) {
   headers.forEach(h => map[normalizeHeader(h)] = h);
   return map;
 }
-function getVal(row, col) { return row[col] == null ? '' : String(row[col]).trim(); }
+function findHeader(headerMap, aliases) {
+  for (const alias of aliases) {
+    const matched = headerMap[normalizeHeader(alias)];
+    if (matched) return matched;
+  }
+  return '';
+}
+function getVal(row, col) {
+  if (!col) return '';
+  return row[col] == null ? '' : String(row[col]).trim();
+}
 function extractGrade(shortSku) {
   const s = String(shortSku || '').trim();
   const idx = s.lastIndexOf('-');
@@ -226,6 +241,12 @@ function loadFile() {
       const headerMap = buildHeaderMap(headers);
       const missing = requiredCols.filter(c => !headerMap[normalizeHeader(c)]);
       if (missing.length) throw new Error('Missing required columns: ' + missing.join(', '));
+
+      vendorColumnName = findHeader(headerMap, ['Vendor', 'Vendor Name', 'Supplier', 'Supplier Name']);
+      hasVendorColumn = Boolean(vendorColumnName);
+      filterFields = hasVendorColumn ? ['Vendor', ...BASE_FILTER_FIELDS] : [...BASE_FILTER_FIELDS];
+      document.getElementById('vendorFilterBox').classList.toggle('hidden', !hasVendorColumn);
+
       offerByModelGrade = new Map();
       rawRows = parsed.slice(1).map(arr => {
         const obj = {};
@@ -239,8 +260,10 @@ function loadFile() {
         const grade = extractGrade(shortSku);
         const paid = parseMoney(getVal(r, col('Paid price')));
         const currency = (getVal(r, col('Currency')) || 'USD').toUpperCase();
+        const vendor = hasVendorColumn ? (getVal(r, vendorColumnName) || '(Blank Vendor)') : '';
         return {
           _row: idx + 2,
+          Vendor: vendor,
           Site: getVal(r, col('Site')),
           Model: model,
           Grade: grade,
@@ -283,15 +306,21 @@ function setupCurrencyUI() {
 }
 
 function renderSummary() {
-  const sites = new Set(processedRows.map(r => r.Site));
-  const grades = new Set(processedRows.map(r => r.Grade));
-  const models = new Set(processedRows.map(r => r.Model));
+  const vendors = new Set(processedRows.map(r => r.Vendor).filter(Boolean));
+  const sites = new Set(processedRows.map(r => r.Site).filter(Boolean));
+  const grades = new Set(processedRows.map(r => r.Grade).filter(Boolean));
+  const models = new Set(processedRows.map(r => r.Model).filter(Boolean));
   const badGrade = processedRows.filter(r => !r.Grade).length;
   const badCost = processedRows.filter(r => !Number.isFinite(r.PaidPrice)).length;
   const sciImei = processedRows.filter(r => isScientificLike(r.IMEI)).length;
+  const vendorSummary = hasVendorColumn ? `Vendors: <b>${vendors.size}</b> | ` : '';
+  const vendorColumnSummary = hasVendorColumn
+    ? `<br>Vendor column detected: <b>${vendorColumnName}</b>`
+    : '<br><span class="muted">No Vendor/Supplier column detected; Site-only filtering remains available.</span>';
   document.getElementById('loadSummary').innerHTML = `
     Rows loaded: <b>${processedRows.length.toLocaleString()}</b><br>
-    Sites: <b>${sites.size}</b> | Grades from Short SKU: <b>${grades.size}</b> | Models: <b>${models.size}</b><br>
+    ${vendorSummary}Sites: <b>${sites.size}</b> | Grades from Short SKU: <b>${grades.size}</b> | Models: <b>${models.size}</b>
+    ${vendorColumnSummary}<br>
     Missing/invalid grade from Short SKU: <b>${badGrade}</b> | Missing/invalid Paid price: <b>${badCost}</b>
     ${sciImei ? `<br><span class="error">Warning: ${sciImei.toLocaleString()} IMEI value(s) already look like scientific notation in the imported CSV. The export will keep them as text, but digits already lost before import cannot be recovered.</span>` : ''}
   `;
@@ -362,6 +391,7 @@ function renderOneFilter(field) {
 function renderAllFilters() {
   filterFields.forEach(renderOneFilter);
   updateFilteredCount();
+  renderActiveFilterSummary();
   renderOfferPriceTable();
 }
 function renderFilters() {
@@ -369,6 +399,7 @@ function renderFilters() {
 
   document.querySelectorAll('.filterBox').forEach(box => {
     const field = box.dataset.filter;
+    if (!filterFields.includes(field)) return;
     const list = box.querySelector('.filterList');
     const search = box.querySelector('.search');
 
@@ -404,6 +435,32 @@ function selectedSet(field) {
 function filteredRows() {
   if (!processedRows.length) return [];
   return processedRows.filter(r => rowMatchesFilterSelections(r));
+}
+function filterSelectionSummary(field) {
+  const allValues = uniqueValues(field);
+  const selected = [...selectedSet(field)].filter(v => allValues.includes(v));
+  if (!allValues.length) return 'None';
+  if (selected.length === allValues.length) return 'All';
+  if (!selected.length) return 'None';
+  if (selected.length <= 3) return selected.join(', ');
+  return `${selected.length} selected`;
+}
+function renderActiveFilterSummary() {
+  const el = document.getElementById('activeFilterSummary');
+  if (!el) return;
+  const parts = [];
+  if (hasVendorColumn) parts.push(`<b>Vendor:</b> ${escapeHtml(filterSelectionSummary('Vendor'))}`);
+  parts.push(`<b>Site:</b> ${escapeHtml(filterSelectionSummary('Site'))}`);
+  parts.push(`<b>Selected rows:</b> ${filteredRows().length.toLocaleString()}`);
+  el.innerHTML = parts.join(' &nbsp;|&nbsp; ');
+}
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 }
 function filteredModelGrades() {
   return [...new Set(filteredRows()
@@ -546,7 +603,7 @@ function groupAverage(rows, keys) {
     g.qty += 1;
   });
   return [...map.values()].map(g => ({...g.sample, Cost: round2(g.sum / g.qty), qty: g.qty}))
-    .sort((a,b) => String(a['Model Grade']).localeCompare(String(b['Model Grade']), undefined, {numeric:true, sensitivity:'base'}) || String(a.Site||'').localeCompare(String(b.Site||'')) || a.Cost-b.Cost);
+    .sort((a,b) => String(a['Model Grade']).localeCompare(String(b['Model Grade']), undefined, {numeric:true, sensitivity:'base'}) || String(a.Vendor||'').localeCompare(String(b.Vendor||'')) || String(a.Site||'').localeCompare(String(b.Site||'')) || a.Cost-b.Cost);
 }
 function buildCostReport() {
   const rows = applyRates(filteredRows());
@@ -554,11 +611,20 @@ function buildCostReport() {
 }
 function buildSourceReport() {
   const rows = applyRates(filteredRows());
+  if (hasVendorColumn) {
+    return groupAverage(rows, ['Vendor', 'Site', 'Model Grade']).map(r => ({Vendor: r.Vendor, Site: r.Site, 'Model Grade': r['Model Grade'], Cost: r.Cost.toFixed(2), qty: r.qty}));
+  }
   return groupAverage(rows, ['Site', 'Model Grade']).map(r => ({Site: r.Site, 'Model Grade': r['Model Grade'], Cost: r.Cost.toFixed(2), qty: r.qty}));
 }
 function buildImeiReport() {
   const rows = applyRates(filteredRows());
-  return rows.filter(r => Number.isFinite(r.CostUSD)).map(r => ({'Model Grade': r['Model Grade'], IMEI: r.IMEI, Cost: round2(r.CostUSD).toFixed(2), Site: r.Site, SKU: r.SKU}));
+  return rows.filter(r => Number.isFinite(r.CostUSD)).map(r => {
+    const output = {'Model Grade': r['Model Grade'], IMEI: r.IMEI, Cost: round2(r.CostUSD).toFixed(2)};
+    if (hasVendorColumn) output.Vendor = r.Vendor;
+    output.Site = r.Site;
+    output.SKU = r.SKU;
+    return output;
+  });
 }
 function renderPreview(rows, title) {
   currentOutput = rows;
@@ -570,7 +636,7 @@ function renderPreview(rows, title) {
   }
   const cols = Object.keys(rows[0]);
   const previewRows = rows.slice(0, 500);
-  tbl.innerHTML = '<thead><tr>' + cols.map(c => `<th>${c}</th>`).join('') + '</tr></thead><tbody>' + previewRows.map(r => '<tr>' + cols.map(c => `<td>${String(r[c] ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;')}</td>`).join('') + '</tr>').join('') + '</tbody>';
+  tbl.innerHTML = '<thead><tr>' + cols.map(c => `<th>${c}</th>`).join('') + '</tr></thead><tbody>' + previewRows.map(r => '<tr>' + cols.map(c => `<td>${escapeHtml(r[c])}</td>`).join('') + '</tr>').join('') + '</tbody>';
   document.getElementById('outputInfo').innerHTML = `<b>${title}</b>: ${rows.length.toLocaleString()} output rows. Online table shows first ${Math.min(500, rows.length)} rows.`;
 }
 
