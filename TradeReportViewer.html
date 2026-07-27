@@ -34,6 +34,9 @@
   .actionBlock { border: 1px solid #e3e3e3; background: #fafafa; border-radius: 10px; padding: 12px; margin: 10px 0; }
   .viewBlock { background: #fff; }
   .actionTitle { font-weight: bold; margin-bottom: 8px; }
+  .offerTableWrap { max-height: 320px; overflow: auto; border: 1px solid #ddd; border-radius: 8px; margin-top: 10px; }
+  .offerInput { width: 150px !important; box-sizing: border-box; }
+  .offerInput.missing { border-color: #c62828; background: #fff3f3; }
 </style>
 </head>
 <body>
@@ -78,11 +81,24 @@
   <h3>Output</h3>
 
   <div class="actionBlock">
+    <div class="actionTitle">4. Order CSV price setup</div>
+    <div class="muted">The table below lists every Model Grade in the current filtered result. Enter the offer for each Model Grade before viewing or downloading the Order CSV. Entered offers stay saved while you change filters.</div>
+    <div class="row" style="margin-top:10px">
+      <button id="refreshOfferTableBtn">Refresh Model Grade list</button>
+      <span id="offerPriceStatus" class="muted"></span>
+    </div>
+    <div class="offerTableWrap">
+      <table id="offerPriceTable"></table>
+    </div>
+  </div>
+
+  <div class="actionBlock">
     <div class="actionTitle">Download output CSV</div>
     <div class="row">
       <button class="primary" id="downloadCostReportBtn">Download 1. Cost report</button>
       <button class="primary" id="downloadSourceReportBtn">Download 2. Cost report outlining source</button>
       <button class="primary" id="downloadImeiReportBtn">Download 3. Model IMEI report</button>
+      <button class="primary" id="downloadOrderReportBtn">Download 4. Order CSV</button>
       <span id="filteredCount" class="muted"></span>
     </div>
   </div>
@@ -93,6 +109,7 @@
       <button id="viewCostReportBtn">View 1. Cost report</button>
       <button id="viewSourceReportBtn">View 2. Cost report outlining source</button>
       <button id="viewImeiReportBtn">View 3. Model IMEI report</button>
+      <button id="viewOrderReportBtn">View 4. Order CSV</button>
     </div>
   </div>
 
@@ -105,7 +122,9 @@ let rawRows = [];
 let processedRows = [];
 let headers = [];
 let currentOutput = [];
+let offerByModelGrade = new Map();
 
+const ORDER_LOCATION_CODE = 'HK_HTR_B2B_VZW';
 const filterFields = ['Site', 'Grade', 'Model', 'Model Grade'];
 let filterSelections = {};
 
@@ -144,7 +163,8 @@ function extractGrade(shortSku) {
   return idx >= 0 ? s.slice(idx + 1).trim() : '';
 }
 function parseMoney(v) {
-  const s = String(v || '').replace(/[$,\s]/g, '');
+  const s = String(v ?? '').replace(/[$,\s]/g, '');
+  if (s === '') return NaN;
   const n = Number(s);
   return Number.isFinite(n) ? n : NaN;
 }
@@ -206,6 +226,7 @@ function loadFile() {
       const headerMap = buildHeaderMap(headers);
       const missing = requiredCols.filter(c => !headerMap[normalizeHeader(c)]);
       if (missing.length) throw new Error('Missing required columns: ' + missing.join(', '));
+      offerByModelGrade = new Map();
       rawRows = parsed.slice(1).map(arr => {
         const obj = {};
         headers.forEach((h, i) => obj[h] = arr[i] ?? '');
@@ -240,6 +261,7 @@ function loadFile() {
       document.getElementById('outputCard').classList.remove('hidden');
       document.getElementById('status').innerHTML = `<span class="ok">Loaded ${processedRows.length.toLocaleString()} rows.</span>`;
       updateFilteredCount();
+      renderOfferPriceTable();
     } catch (err) {
       document.getElementById('status').innerHTML = `<span class="error">${err.message}</span>`;
     }
@@ -340,6 +362,7 @@ function renderOneFilter(field) {
 function renderAllFilters() {
   filterFields.forEach(renderOneFilter);
   updateFilteredCount();
+  renderOfferPriceTable();
 }
 function renderFilters() {
   resetFilterSelections();
@@ -381,6 +404,122 @@ function selectedSet(field) {
 function filteredRows() {
   if (!processedRows.length) return [];
   return processedRows.filter(r => rowMatchesFilterSelections(r));
+}
+function filteredModelGrades() {
+  return [...new Set(filteredRows()
+    .map(r => String(r['Model Grade'] ?? '').trim())
+    .filter(Boolean))]
+    .sort((a,b) => a.localeCompare(b, undefined, {numeric:true, sensitivity:'base'}));
+}
+function offerValueFor(modelGrade) {
+  return String(offerByModelGrade.get(modelGrade) ?? '').trim();
+}
+function renderOfferPriceStatus(modelGrades = filteredModelGrades()) {
+  const filled = modelGrades.filter(mg => Number.isFinite(parseMoney(offerValueFor(mg)))).length;
+  const missing = modelGrades.length - filled;
+  const status = document.getElementById('offerPriceStatus');
+  if (!status) return;
+  if (!modelGrades.length) {
+    status.innerHTML = '<span class="error">No Model Grade is currently selected.</span>';
+  } else if (missing) {
+    status.innerHTML = `${modelGrades.length.toLocaleString()} Model Grade(s); <span class="error">${missing.toLocaleString()} offer(s) missing</span>`;
+  } else {
+    status.innerHTML = `${modelGrades.length.toLocaleString()} Model Grade(s); <span class="ok">all offers completed</span>`;
+  }
+}
+function renderOfferPriceTable() {
+  const tbl = document.getElementById('offerPriceTable');
+  if (!tbl) return;
+  const modelGrades = filteredModelGrades();
+  if (!modelGrades.length) {
+    tbl.innerHTML = '<tr><td>No Model Grade under the current filters.</td></tr>';
+    renderOfferPriceStatus(modelGrades);
+    return;
+  }
+
+  tbl.innerHTML = '<thead><tr><th>Model Grade</th><th>Offer</th></tr></thead><tbody></tbody>';
+  const tbody = tbl.querySelector('tbody');
+
+  modelGrades.forEach(modelGrade => {
+    const tr = document.createElement('tr');
+    const modelTd = document.createElement('td');
+    modelTd.textContent = modelGrade;
+
+    const offerTd = document.createElement('td');
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.inputMode = 'decimal';
+    input.className = 'offerInput';
+    input.placeholder = 'Enter offer';
+    input.value = offerValueFor(modelGrade);
+    input.dataset.modelGrade = modelGrade;
+
+    const refreshInputState = () => {
+      const raw = input.value.trim();
+      const parsed = parseMoney(raw);
+      input.classList.toggle('missing', raw === '' || !Number.isFinite(parsed));
+    };
+
+    input.oninput = () => {
+      offerByModelGrade.set(modelGrade, input.value.trim());
+      refreshInputState();
+      renderOfferPriceStatus(modelGrades);
+    };
+    refreshInputState();
+
+    offerTd.appendChild(input);
+    tr.appendChild(modelTd);
+    tr.appendChild(offerTd);
+    tbody.appendChild(tr);
+  });
+
+  renderOfferPriceStatus(modelGrades);
+}
+function buildOrderReport() {
+  const rows = filteredRows();
+  if (!rows.length) return [];
+
+  const missingSkuRows = rows.filter(r => !String(r.SKU ?? '').trim());
+  if (missingSkuRows.length) {
+    throw new Error(`${missingSkuRows.length.toLocaleString()} selected row(s) have no SKU. Order CSV cannot be created.`);
+  }
+
+  const modelGrades = [...new Set(rows.map(r => String(r['Model Grade'] ?? '').trim()).filter(Boolean))];
+  const missingOffers = modelGrades.filter(mg => !Number.isFinite(parseMoney(offerValueFor(mg))));
+  if (missingOffers.length) {
+    renderOfferPriceTable();
+    throw new Error('Please enter a valid Offer for: ' + missingOffers.join(', '));
+  }
+
+  const grouped = new Map();
+  rows.forEach(r => {
+    const sku = String(r.SKU ?? '').trim();
+    const modelGrade = String(r['Model Grade'] ?? '').trim();
+    const price = round2(parseMoney(offerValueFor(modelGrade)));
+
+    if (!grouped.has(sku)) {
+      grouped.set(sku, {SKU: sku, Qty: 0, prices: new Set(), modelGrades: new Set()});
+    }
+    const g = grouped.get(sku);
+    g.Qty += 1;
+    g.prices.add(price.toFixed(2));
+    g.modelGrades.add(modelGrade);
+  });
+
+  const conflicts = [...grouped.values()].filter(g => g.prices.size > 1);
+  if (conflicts.length) {
+    const details = conflicts.slice(0, 10).map(g => `${g.SKU} (${[...g.modelGrades].join(' / ')})`).join(', ');
+    throw new Error('Some SKUs map to multiple Model Grades with different offers: ' + details);
+  }
+
+  return [...grouped.values()]
+    .sort((a,b) => a.SKU.localeCompare(b.SKU, undefined, {numeric:true, sensitivity:'base'}))
+    .map(g => ({
+      SKU: g.SKU,
+      'Location Code': ORDER_LOCATION_CODE,
+      Qty: g.Qty,
+      Price: [...g.prices][0]
+    }));
 }
 function applyRates(rows) {
   const missingCurrencies = new Set();
@@ -450,9 +589,12 @@ document.getElementById('loadBtn').onclick = loadFile;
 document.getElementById('downloadCostReportBtn').onclick = () => handleDownload(buildCostReport, 'cost_report.csv');
 document.getElementById('downloadSourceReportBtn').onclick = () => handleDownload(buildSourceReport, 'cost_report_outlining_source.csv');
 document.getElementById('downloadImeiReportBtn').onclick = () => handleDownload(buildImeiReport, 'model_imei_report.csv');
+document.getElementById('downloadOrderReportBtn').onclick = () => handleDownload(buildOrderReport, 'order.csv');
 document.getElementById('viewCostReportBtn').onclick = () => handleView(buildCostReport, 'Cost report');
 document.getElementById('viewSourceReportBtn').onclick = () => handleView(buildSourceReport, 'Cost report outlining source');
 document.getElementById('viewImeiReportBtn').onclick = () => handleView(buildImeiReport, 'Model IMEI report');
+document.getElementById('viewOrderReportBtn').onclick = () => handleView(buildOrderReport, 'Order CSV');
+document.getElementById('refreshOfferTableBtn').onclick = renderOfferPriceTable;
 </script>
 </body>
 </html>
