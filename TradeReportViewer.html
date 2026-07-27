@@ -37,6 +37,9 @@
   .offerTableWrap { max-height: 320px; overflow: auto; border: 1px solid #ddd; border-radius: 8px; margin-top: 10px; }
   .offerInput { width: 150px !important; box-sizing: border-box; }
   .offerInput.missing { border-color: #c62828; background: #fff3f3; }
+  .offerBatchBlock { margin-top: 14px; padding-top: 14px; border-top: 1px solid #ddd; }
+  .offerImportText { width: 100%; min-height: 130px; box-sizing: border-box; margin-top: 10px; padding: 9px; border: 1px solid #ccc; border-radius: 8px; font-family: Consolas, monospace; font-size: 13px; resize: vertical; }
+  .fileCompact { max-width: 310px; }
 </style>
 </head>
 <body>
@@ -89,6 +92,24 @@
       <button id="refreshOfferTableBtn">Refresh Model Grade list</button>
       <span id="offerPriceStatus" class="muted"></span>
     </div>
+
+    <div class="offerBatchBlock">
+      <div class="actionTitle">Batch offer import</div>
+      <div class="muted">Copy or download the current filtered Model Grade list, fill the Offer column, then paste or import the completed CSV. Expected columns: <b>Model Grade, Offer</b>.</div>
+      <div class="row" style="margin-top:10px">
+        <button id="copyOfferTemplateBtn">Copy blank offer template</button>
+        <button id="downloadOfferTemplateBtn">Download blank offer template</button>
+        <input id="offerImportFile" class="fileCompact" type="file" accept=".csv,text/csv" />
+        <button id="importOfferFileBtn">Import completed offer CSV</button>
+      </div>
+      <textarea id="offerImportText" class="offerImportText" placeholder="Model Grade,Offer&#10;iPhone 13 128GB-C,220&#10;iPhone 14 128GB-C,280"></textarea>
+      <div class="row" style="margin-top:8px">
+        <button class="primary" id="importOfferTextBtn">Import pasted offers</button>
+        <button id="clearOfferImportTextBtn">Clear pasted text</button>
+        <span id="offerImportStatus" class="muted"></span>
+      </div>
+    </div>
+
     <div class="offerTableWrap">
       <table id="offerPriceTable"></table>
     </div>
@@ -188,19 +209,52 @@ function csvEscape(v) {
   const s = String(v ?? '');
   return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
 }
-function isLongNumericLike(v) {
+function unwrapExcelTextFormula(v) {
   const s = String(v ?? '').trim();
-  return /^\d{11,20}$/.test(s) || /^[+-]?\d+(?:\.\d+)?e[+-]?\d+$/i.test(s);
+  const m = s.match(/^="([\s\S]*)"$/);
+  return m ? m[1].replace(/""/g, '"') : s;
 }
 function isScientificLike(v) {
-  const s = String(v ?? '').trim();
+  const s = unwrapExcelTextFormula(v);
   return /^[+-]?\d+(?:\.\d+)?e[+-]?\d+$/i.test(s);
 }
+function expandScientificNumber(v) {
+  const s = unwrapExcelTextFormula(v);
+  const m = s.match(/^([+-]?)(\d+)(?:\.(\d*))?[eE]([+-]?\d+)$/);
+  if (!m) return s;
+
+  const sign = m[1] === '-' ? '-' : '';
+  const whole = m[2];
+  const fraction = m[3] || '';
+  const exponent = Number(m[4]);
+  if (!Number.isInteger(exponent)) return s;
+
+  const digits = whole + fraction;
+  const decimalPosition = whole.length + exponent;
+  let expanded;
+  if (decimalPosition <= 0) {
+    expanded = '0.' + '0'.repeat(-decimalPosition) + digits;
+  } else if (decimalPosition >= digits.length) {
+    expanded = digits + '0'.repeat(decimalPosition - digits.length);
+  } else {
+    expanded = digits.slice(0, decimalPosition) + '.' + digits.slice(decimalPosition);
+  }
+
+  if (expanded.includes('.')) {
+    expanded = expanded.replace(/0+$/, '').replace(/\.$/, '');
+  }
+  return sign + expanded;
+}
+function normalizeImei(v) {
+  let s = unwrapExcelTextFormula(v);
+  if (isScientificLike(s)) s = expandScientificNumber(s);
+  if (/^\d+\.0+$/.test(s)) s = s.replace(/\.0+$/, '');
+  return s.trim();
+}
 function protectCsvValue(col, value) {
-  const s = String(value ?? '').trim();
-  // Excel auto-converts long IMEI numbers into scientific notation.
-  // For CSV download only, write IMEI as an Excel text formula so it opens as text.
-  if (col === 'IMEI' && isLongNumericLike(s)) return `="${s.replace(/"/g, '""')}"`;
+  // CSV has no data types. Export IMEI as plain, fully expanded digits rather
+  // than an Excel formula such as ="3.51153E+14".
+  if (col === 'IMEI') return normalizeImei(value);
   return value;
 }
 function toCSV(rows) {
@@ -261,6 +315,7 @@ function loadFile() {
         const paid = parseMoney(getVal(r, col('Paid price')));
         const currency = (getVal(r, col('Currency')) || 'USD').toUpperCase();
         const vendor = hasVendorColumn ? (getVal(r, vendorColumnName) || '(Blank Vendor)') : '';
+        const rawImei = getVal(r, col('IMEI'));
         return {
           _row: idx + 2,
           Vendor: vendor,
@@ -270,7 +325,8 @@ function loadFile() {
           'Model Grade': model && grade ? `${model}-${grade}` : model,
           'Short SKU': shortSku,
           SKU: getVal(r, col('SKU')),
-          IMEI: getVal(r, col('IMEI')),
+          IMEI: normalizeImei(rawImei),
+          _imeiWasScientific: isScientificLike(rawImei),
           Currency: currency,
           PaidPrice: paid,
           CostUSD: NaN
@@ -312,7 +368,7 @@ function renderSummary() {
   const models = new Set(processedRows.map(r => r.Model).filter(Boolean));
   const badGrade = processedRows.filter(r => !r.Grade).length;
   const badCost = processedRows.filter(r => !Number.isFinite(r.PaidPrice)).length;
-  const sciImei = processedRows.filter(r => isScientificLike(r.IMEI)).length;
+  const sciImei = processedRows.filter(r => r._imeiWasScientific).length;
   const vendorSummary = hasVendorColumn ? `Vendors: <b>${vendors.size}</b> | ` : '';
   const vendorColumnSummary = hasVendorColumn
     ? `<br>Vendor column detected: <b>${vendorColumnName}</b>`
@@ -322,7 +378,7 @@ function renderSummary() {
     ${vendorSummary}Sites: <b>${sites.size}</b> | Grades from Short SKU: <b>${grades.size}</b> | Models: <b>${models.size}</b>
     ${vendorColumnSummary}<br>
     Missing/invalid grade from Short SKU: <b>${badGrade}</b> | Missing/invalid Paid price: <b>${badCost}</b>
-    ${sciImei ? `<br><span class="error">Warning: ${sciImei.toLocaleString()} IMEI value(s) already look like scientific notation in the imported CSV. The export will keep them as text, but digits already lost before import cannot be recovered.</span>` : ''}
+    ${sciImei ? `<br><span class="warn">${sciImei.toLocaleString()} scientific-notation IMEI value(s) were expanded into full decimal digits. Any digits already omitted by the source CSV cannot be reconstructed.</span>` : ''}
   `;
 }
 
@@ -532,6 +588,107 @@ function renderOfferPriceTable() {
 
   renderOfferPriceStatus(modelGrades);
 }
+function buildOfferTemplateRows() {
+  return filteredModelGrades().map(modelGrade => ({'Model Grade': modelGrade, Offer: ''}));
+}
+function offerTemplateCsvText() {
+  const rows = buildOfferTemplateRows();
+  if (!rows.length) throw new Error('No Model Grade is currently selected.');
+  return '\uFEFF' + toCSV(rows);
+}
+async function copyTextToClipboard(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const area = document.createElement('textarea');
+  area.value = text;
+  area.style.position = 'fixed';
+  area.style.opacity = '0';
+  document.body.appendChild(area);
+  area.focus();
+  area.select();
+  const ok = document.execCommand('copy');
+  area.remove();
+  if (!ok) throw new Error('Clipboard copy was blocked by the browser. Please download the template instead.');
+}
+function setOfferImportStatus(message, type = 'muted') {
+  const el = document.getElementById('offerImportStatus');
+  if (!el) return;
+  const cls = type === 'error' ? 'error' : type === 'ok' ? 'ok' : 'muted';
+  el.innerHTML = `<span class="${cls}">${escapeHtml(message)}</span>`;
+}
+function canonicalModelGradeMap() {
+  const map = new Map();
+  processedRows.forEach(r => {
+    const modelGrade = String(r['Model Grade'] ?? '').trim();
+    if (modelGrade) map.set(normalizeHeader(modelGrade).replace(/\s+/g, ' '), modelGrade);
+  });
+  return map;
+}
+function importOfferCsvText(text) {
+  const parsed = parseCSV(String(text || '').replace(/^\uFEFF/, ''))
+    .filter(row => row.some(value => String(value).trim() !== ''));
+  if (parsed.length < 2) throw new Error('The offer CSV has no data rows.');
+
+  const importHeaders = parsed[0].map(h => String(h || '').trim().replace(/^\uFEFF/, ''));
+  const importHeaderMap = buildHeaderMap(importHeaders);
+  const modelGradeHeader = findHeader(importHeaderMap, ['Model Grade', 'ModelGrade', 'Model']);
+  const offerHeader = findHeader(importHeaderMap, ['Offer', 'Price', 'Offer Price']);
+  if (!modelGradeHeader || !offerHeader) {
+    throw new Error('Missing required columns. Please use: Model Grade, Offer');
+  }
+
+  const modelGradeIndex = importHeaders.indexOf(modelGradeHeader);
+  const offerIndex = importHeaders.indexOf(offerHeader);
+  const canonical = canonicalModelGradeMap();
+  let imported = 0;
+  let blanks = 0;
+  let invalid = 0;
+  let unmatched = 0;
+  const unmatchedNames = [];
+
+  parsed.slice(1).forEach(row => {
+    const suppliedModelGrade = String(row[modelGradeIndex] ?? '').trim();
+    const suppliedOffer = String(row[offerIndex] ?? '').trim();
+    if (!suppliedModelGrade) return;
+    if (!suppliedOffer) { blanks++; return; }
+    if (!Number.isFinite(parseMoney(suppliedOffer))) { invalid++; return; }
+
+    const matchedModelGrade = canonical.get(normalizeHeader(suppliedModelGrade).replace(/\s+/g, ' '));
+    if (!matchedModelGrade) {
+      unmatched++;
+      if (unmatchedNames.length < 5) unmatchedNames.push(suppliedModelGrade);
+      return;
+    }
+
+    offerByModelGrade.set(matchedModelGrade, suppliedOffer);
+    imported++;
+  });
+
+  renderOfferPriceTable();
+  const details = [`Imported ${imported.toLocaleString()} offer(s)`];
+  if (blanks) details.push(`${blanks.toLocaleString()} blank skipped`);
+  if (invalid) details.push(`${invalid.toLocaleString()} invalid skipped`);
+  if (unmatched) details.push(`${unmatched.toLocaleString()} unmatched${unmatchedNames.length ? ': ' + unmatchedNames.join(' / ') : ''}`);
+  setOfferImportStatus(details.join('; '), imported ? 'ok' : 'error');
+  return imported;
+}
+function importOfferFile() {
+  const file = document.getElementById('offerImportFile').files[0];
+  if (!file) { alert('Please choose a completed offer CSV first.'); return; }
+  const reader = new FileReader();
+  reader.onload = e => {
+    try { importOfferCsvText(e.target.result); }
+    catch (err) { setOfferImportStatus(err.message, 'error'); alert(err.message); }
+  };
+  reader.onerror = () => {
+    setOfferImportStatus('Unable to read the selected offer CSV.', 'error');
+    alert('Unable to read the selected offer CSV.');
+  };
+  reader.readAsText(file);
+}
+
 function buildOrderReport() {
   const rows = filteredRows();
   if (!rows.length) return [];
@@ -661,6 +818,30 @@ document.getElementById('viewSourceReportBtn').onclick = () => handleView(buildS
 document.getElementById('viewImeiReportBtn').onclick = () => handleView(buildImeiReport, 'Model IMEI report');
 document.getElementById('viewOrderReportBtn').onclick = () => handleView(buildOrderReport, 'Order CSV');
 document.getElementById('refreshOfferTableBtn').onclick = renderOfferPriceTable;
+document.getElementById('copyOfferTemplateBtn').onclick = async () => {
+  try {
+    const text = offerTemplateCsvText().replace(/^\uFEFF/, '');
+    await copyTextToClipboard(text);
+    setOfferImportStatus('Offer template copied to clipboard.', 'ok');
+  } catch (err) { setOfferImportStatus(err.message, 'error'); alert(err.message); }
+};
+document.getElementById('downloadOfferTemplateBtn').onclick = () => {
+  try {
+    const rows = buildOfferTemplateRows();
+    if (!rows.length) throw new Error('No Model Grade is currently selected.');
+    downloadCSV('offer_template.csv', rows);
+    setOfferImportStatus('Blank offer template downloaded.', 'ok');
+  } catch (err) { setOfferImportStatus(err.message, 'error'); alert(err.message); }
+};
+document.getElementById('importOfferTextBtn').onclick = () => {
+  try { importOfferCsvText(document.getElementById('offerImportText').value); }
+  catch (err) { setOfferImportStatus(err.message, 'error'); alert(err.message); }
+};
+document.getElementById('clearOfferImportTextBtn').onclick = () => {
+  document.getElementById('offerImportText').value = '';
+  setOfferImportStatus('Pasted offer text cleared.');
+};
+document.getElementById('importOfferFileBtn').onclick = importOfferFile;
 </script>
 </body>
 </html>
