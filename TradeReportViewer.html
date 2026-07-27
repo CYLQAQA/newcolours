@@ -153,6 +153,7 @@ let filterFields = [...BASE_FILTER_FIELDS];
 let filterSelections = {};
 let hasVendorColumn = false;
 let vendorColumnName = '';
+let itemIdColumnName = '';
 
 const requiredCols = ['Site', 'Key Product', 'Short SKU', 'SKU', 'Paid price', 'Currency', 'IMEI'];
 
@@ -297,6 +298,7 @@ function loadFile() {
       if (missing.length) throw new Error('Missing required columns: ' + missing.join(', '));
 
       vendorColumnName = findHeader(headerMap, ['Vendor', 'Vendor Name', 'Supplier', 'Supplier Name']);
+      itemIdColumnName = findHeader(headerMap, ['Item ID', 'Item Id', 'ItemID', 'Item No', 'Item Number']);
       hasVendorColumn = Boolean(vendorColumnName);
       filterFields = hasVendorColumn ? ['Vendor', ...BASE_FILTER_FIELDS] : [...BASE_FILTER_FIELDS];
       document.getElementById('vendorFilterBox').classList.toggle('hidden', !hasVendorColumn);
@@ -325,6 +327,7 @@ function loadFile() {
           'Model Grade': model && grade ? `${model}-${grade}` : model,
           'Short SKU': shortSku,
           SKU: getVal(r, col('SKU')),
+          'Item ID': getVal(r, itemIdColumnName),
           IMEI: normalizeImei(rawImei),
           _imeiWasScientific: isScientificLike(rawImei),
           Currency: currency,
@@ -776,7 +779,7 @@ function buildSourceReport() {
 function buildImeiReport() {
   const rows = applyRates(filteredRows());
   return rows.filter(r => Number.isFinite(r.CostUSD)).map(r => {
-    const output = {'Model Grade': r['Model Grade'], IMEI: r.IMEI, Cost: round2(r.CostUSD).toFixed(2)};
+    const output = {'Model Grade': r['Model Grade'], 'Item ID': r['Item ID'], IMEI: r.IMEI, Cost: round2(r.CostUSD).toFixed(2)};
     if (hasVendorColumn) output.Vendor = r.Vendor;
     output.Site = r.Site;
     output.SKU = r.SKU;
