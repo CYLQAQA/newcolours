@@ -2301,7 +2301,7 @@ for(const country of countries){
   // ===== SIM Color export (ALL models / filtered view) =====
   // Creates one worksheet per country with columns:
   // Item | Color | Total Qty | PSIM Qty | ESIM Qty
-  // Each model starts with an "All Colors" subtotal row, followed by its color rows.
+  // Each model starts with an "All" subtotal row, followed by its color rows.
   async function exportSimColorExcel(filteredOnly=false){
     if(!DATA || !DATA.rows || !DATA.rows.length){
       alert('No dataset loaded.');
@@ -2411,7 +2411,7 @@ for(const country of countries){
         const model = byCountry.get(country).get(item);
 
         ws.getCell(excelRow,1).value = item;
-        ws.getCell(excelRow,2).value = 'All Colors';
+        ws.getCell(excelRow,2).value = 'All';
         ws.getCell(excelRow,3).value = blankWhenZero(model.total);
         ws.getCell(excelRow,4).value = blankWhenZero(model.psim);
         ws.getCell(excelRow,5).value = blankWhenZero(model.esim);
