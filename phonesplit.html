@@ -430,8 +430,8 @@
             'CA_B2B_Boxed': 'CA',
             'CA_B2B_Boxwd': 'CA'
         ,
-            'HK_IE_FSET_B2B': 'HK',
-            'HK_IE_FSET_B2B_BOXED': 'HK',
+            'HK_IE_FSET_B2B': 'HK_FSET',
+            'HK_IE_FSET_B2B_BOXED': 'HK_FSET',
 };
 
         // Exchange rates
@@ -1144,7 +1144,7 @@
             // The first/original XLSX is not changed.
             return (data || []).map(row => ({ ...row })).filter(row => {
                 const region = (row.Country || '').toString().trim().toUpperCase();
-                const isUsOrHk = region === 'US' || region === 'HK' || region === 'HK_VZW';
+                const isUsOrHk = region === 'US' || region === 'HK' || region === 'HK_VZW' || region === 'HK_FSET';
                 if (!isUsOrHk) return true;
 
                 const modelGrade = (row['Model grade'] || '').toString();
@@ -1187,7 +1187,7 @@
         async function createExcelOutputWithBorders(data, filename, vzwData = []) {
             const workbook = new ExcelJS.Workbook();
             // UPDATED TO INCLUDE CA
-            const countries = ['AU', 'HK', 'JP', 'US', 'UK', 'IE', 'DUB', 'CA'];
+            const countries = ['AU', 'HK', 'HK_FSET', 'JP', 'US', 'UK', 'IE', 'DUB', 'CA'];
 
             // Define border style
             const borderStyle = {
