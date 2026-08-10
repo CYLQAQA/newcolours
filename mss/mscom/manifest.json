@@ -1,0 +1,10 @@
+{
+  "name": "Margin Sheet Tool",
+  "version": "combined-1.0",
+  "entry": "index.html",
+  "workflow": [
+    "shared mapping",
+    "optional summary build",
+    "margin generation"
+  ]
+}
