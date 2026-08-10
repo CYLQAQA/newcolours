@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Margin Sheet Aggregator (Alias Expansion v3 + Field Sync + Safe Reverse Lookup + Last ASP)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+  <link rel="stylesheet" href="assets/css/aggregator.css" />
+</head>
+<body class="bg-gray-50 min-h-screen p-4">
+  <div class="max-w-7xl mx-auto">
+    <h1 class="text-2xl font-bold mb-4">Margin Sheet Aggregator (Alias Expansion v3 + Field Sync + Safe Reverse Lookup + Last ASP)</h1>
+
+    <!-- Drop zone / file input -->
+    <div id="dropZone" class="drop-zone mb-4">
+      <span>Drag & drop Excel files here or click to select</span>
+      <input id="fileInput" type="file" multiple accept=".xlsx,.xls" class="hidden" />
+    </div>
+
+    <!-- Controls -->
+    <div class="controls flex flex-wrap gap-4 items-center mb-4">
+      <div>
+        <label for="refInput" class="block text-sm font-medium text-gray-700">Reference Map (model mapping)</label>
+        <input id="refInput" type="file" accept=".xls,.xlsx" class="mt-1 block w-80 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm" />
+      </div>
+
+      <!-- Name mapping input for pricing_sku -> en_name -->
+      <div>
+        <label for="nameMapInput" class="block text-sm font-medium text-gray-700">Name Mapping (pricing_sku to en_name)</label>
+        <input id="nameMapInput" type="file" accept=".xls,.xlsx" class="mt-1 block w-80 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm" />
+      </div>
+
+      <label class="flex items-center space-x-2">
+        <input id="aliasExpansionCheckbox" type="checkbox" class="h-4 w-4 text-blue-600" checked />
+        <span class="text-sm">Expand missing alias names from Name Mapping</span>
+      </label>
+
+      <label class="flex items-center space-x-2">
+        <input id="aliasConflictGuardCheckbox" type="checkbox" class="h-4 w-4 text-blue-600" checked />
+        <span class="text-sm">Skip obvious conflicting alias groups</span>
+      </label>
+
+      <!-- Last ASP master (optional) -->
+      <div>
+        <label for="lastAspInput" class="block text-sm font-medium text-gray-700">
+          Last ASP Master (by country tabs, optional)
+        </label>
+        <input id="lastAspInput" type="file" accept=".xls,.xlsx" class="mt-1 block w-80 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm" />
+      </div>
+
+      <label class="flex items-center space-x-2">
+        <input id="skipRowsCheckbox" type="checkbox" class="h-4 w-4 text-blue-600" checked />
+        <span class="text-sm">Headers start at row 3 (skip first 2 rows)</span>
+      </label>
+
+      <div>
+        <label for="fxRatesInput" class="block text-sm font-medium text-gray-700">FX rates (e.g. HKD=0.128,JPY=0.0068)</label>
+        <input id="fxRatesInput" type="text" class="mt-1 block w-80 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm" value="HKD=0.1276,JPY=0.00616,AUD=0.6939,EUR=1.1432,GBP=1.3410,CAD=0.7056,SGD=0.7737,NZD=0.5703" />
+      </div>
+
+      <div>
+        <label for="aspMethod" class="block text-sm font-medium text-gray-700">ASP aggregation (for Type 1/2 if no Last ASP file)</label>
+        <select id="aspMethod" class="mt-1 block w-40 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+          <option value="max" selected>Max</option>
+          <option value="avg">Average</option>
+        </select>
+      </div>
+
+      <button id="processBtn" class="bg-blue-600 text-white px-4 py-2 rounded-md shadow hover:bg-blue-700 disabled:opacity-50">Process</button>
+      <button id="downloadBtn" class="bg-green-600 text-white px-4 py-2 rounded-md shadow hover:bg-green-700 hidden">Download Excel</button>
+    </div>
+
+    <!-- Mapping table -->
+    <div id="mappingSection" class="overflow-x-auto mb-4 hidden">
+      <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-100">
+          <tr>
+            <th class="px-3 py-2 text-left text-xs font-medium text-gray-700">File</th>
+            <th class="px-3 py-2 text-left text-xs font-medium text-gray-700">Sheet</th>
+            <th class="px-3 py-2 text-left text-xs font-medium text-gray-700">Detected Type</th>
+            <th class="px-3 py-2 text-left text-xs font-medium text-gray-700">Select Type</th>
+            <th class="px-3 py-2 text-left text-xs font-medium text-gray-700">Region</th>
+            <th class="px-3 py-2 text-left text-xs font-medium text-gray-700">Include</th>
+          </tr>
+        </thead>
+        <tbody id="mappingTableBody" class="bg-white divide-y divide-gray-200"></tbody>
+      </table>
+    </div>
+
+    <!-- Output table -->
+    <div id="output" class="overflow-auto"></div>
+  </div>
+
+  <script src="assets/js/aggregator.js"></script>
+</body>
+</html>
