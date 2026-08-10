@@ -1,5 +1,0 @@
-table.output-table{width:100%;border-collapse:collapse;margin-top:1rem}
-    table.output-table th,table.output-table td{border:1px solid #d1d5db;padding:.5rem;text-align:left;white-space:nowrap;min-width:220px}
-    table.output-table thead th{background:#f3f4f6;font-weight:600}
-    .drop-zone{display:flex;align-items:center;justify-content:center;border:2px dashed #9ca3af;border-radius:.5rem;padding:2rem;text-align:center;color:#6b7280;cursor:pointer;transition:.2s}
-    .drop-zone.dragover{background:#e5e7eb;border-color:#3b82f6;color:#374151}
