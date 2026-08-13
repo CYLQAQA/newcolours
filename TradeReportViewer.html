@@ -56,13 +56,22 @@
 
 <div class="card">
   <h3>Currency conversion to USD</h3>
-  <div class="muted">USD is fixed at 1. Adjust AUD/HKD if needed. Any other detected currency will appear below and must have a USD rate before export.</div>
+  <div class="muted">Built-in fallback rates are provided for AUD, EUR, HKD, JPY, KRW and TWD. USD is always 1. You can edit any rate manually, or fetch the latest online rates.</div>
   <div class="row" style="margin-top:10px">
-    <label>AUD → USD<br><input id="rate_AUD" type="number" step="0.000001" value="0.7063"></label>
-    <label>HKD → USD<br><input id="rate_HKD" type="number" step="0.000001" value="0.12768"></label>
+    <label>AUD → USD<br><input id="rate_AUD" type="number" step="0.000000001" value="0.704785"></label>
+    <label>EUR → USD<br><input id="rate_EUR" type="number" step="0.000000001" value="1.15258"></label>
+    <label>HKD → USD<br><input id="rate_HKD" type="number" step="0.000000001" value="0.127443"></label>
+    <label>JPY → USD<br><input id="rate_JPY" type="number" step="0.000000001" value="0.0062737"></label>
+    <label>KRW → USD<br><input id="rate_KRW" type="number" step="0.000000001" value="0.000702267"></label>
+    <label>TWD → USD<br><input id="rate_TWD" type="number" step="0.000000001" value="0.0311052"></label>
+  </div>
+  <div class="row" style="margin-top:10px">
+    <button id="updateLiveRatesBtn">Get latest online rates</button>
+    <span id="liveRateStatus" class="muted">Using built-in fallback rates.</span>
   </div>
   <div id="extraRates" class="row" style="margin-top:10px"></div>
   <div id="currencyInfo" class="muted"></div>
+  <div class="muted" style="margin-top:6px">Online source: <a href="https://www.exchangerate-api.com" target="_blank" rel="noopener noreferrer">ExchangeRate-API</a>.</div>
 </div>
 
 <div id="summaryCard" class="card hidden">
@@ -156,6 +165,105 @@ let vendorColumnName = '';
 let itemIdColumnName = '';
 
 const requiredCols = ['Site', 'Key Product', 'Short SKU', 'SKU', 'Paid price', 'Currency', 'IMEI'];
+
+// Built-in currency → USD fallback rates. These keep exports working if the
+// online rate request is unavailable. USD itself is always fixed at 1.
+const FALLBACK_USD_RATES = Object.freeze({
+  USD: 1,
+  AUD: 0.704785,
+  EUR: 1.15258,
+  HKD: 0.127443,
+  JPY: 0.0062737,
+  KRW: 0.000702267,
+  TWD: 0.0311052
+});
+const BUILT_IN_CURRENCIES = new Set(Object.keys(FALLBACK_USD_RATES));
+const LIVE_RATE_URL = 'https://open.er-api.com/v6/latest/USD';
+
+function formatRateInput(rate) {
+  const n = Number(rate);
+  if (!Number.isFinite(n) || n <= 0) return '';
+  return n.toFixed(9).replace(/0+$/, '').replace(/\.$/, '');
+}
+
+function setRateInput(currency, rate) {
+  const el = document.getElementById('rate_' + currency);
+  if (!el) return false;
+  const value = formatRateInput(rate);
+  if (!value) return false;
+  el.value = value;
+  return true;
+}
+
+function applyFallbackRates(currencies = Object.keys(FALLBACK_USD_RATES)) {
+  currencies.forEach(currency => {
+    if (currency !== 'USD' && FALLBACK_USD_RATES[currency]) {
+      setRateInput(currency, FALLBACK_USD_RATES[currency]);
+    }
+  });
+}
+
+function setLiveRateStatus(message, type = 'muted') {
+  const el = document.getElementById('liveRateStatus');
+  if (!el) return;
+  const cls = type === 'error' ? 'error' : type === 'ok' ? 'ok' : 'muted';
+  el.innerHTML = `<span class="${cls}">${escapeHtml(message)}</span>`;
+}
+
+async function updateLiveRates() {
+  const btn = document.getElementById('updateLiveRatesBtn');
+  if (!btn) return;
+
+  btn.disabled = true;
+  setLiveRateStatus('Fetching latest online rates...');
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+  try {
+    const response = await fetch(LIVE_RATE_URL, {
+      method: 'GET',
+      cache: 'no-store',
+      signal: controller.signal
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+    const data = await response.json();
+    if (!data || data.result !== 'success' || !data.rates) {
+      throw new Error('Invalid rate response');
+    }
+
+    const missingFromLive = [];
+    let updated = 0;
+    for (const currency of Object.keys(FALLBACK_USD_RATES)) {
+      if (currency === 'USD') continue;
+      const usdToCurrency = Number(data.rates[currency]);
+      if (!Number.isFinite(usdToCurrency) || usdToCurrency <= 0) {
+        missingFromLive.push(currency);
+        continue;
+      }
+      // API is USD → currency; this tool stores currency → USD.
+      if (setRateInput(currency, 1 / usdToCurrency)) updated++;
+    }
+
+    if (missingFromLive.length) applyFallbackRates(missingFromLive);
+
+    const sourceTime = String(data.time_last_update_utc || '').trim();
+    const detail = sourceTime ? ` Source update: ${sourceTime}.` : '';
+    if (missingFromLive.length) {
+      setLiveRateStatus(`Updated ${updated} rate(s) online; fallback used for ${missingFromLive.join(', ')}.${detail}`, 'ok');
+    } else {
+      setLiveRateStatus(`Updated ${updated} rate(s) from the online source.${detail}`, 'ok');
+    }
+  } catch (err) {
+    applyFallbackRates();
+    const reason = err && err.name === 'AbortError' ? 'request timed out' : (err && err.message ? err.message : 'request failed');
+    setLiveRateStatus(`Online update failed (${reason}). Built-in fallback rates restored.`, 'error');
+  } finally {
+    clearTimeout(timeoutId);
+    btn.disabled = false;
+  }
+}
 
 function parseCSV(text) {
   const rows = [];
@@ -353,15 +461,24 @@ function loadFile() {
 
 function setupCurrencyUI() {
   const currencies = [...new Set(processedRows.map(r => r.Currency).filter(Boolean))].sort();
-  const extra = currencies.filter(c => !['USD','AUD','HKD'].includes(c));
+  const extra = currencies.filter(c => !BUILT_IN_CURRENCIES.has(c));
   const extraRates = document.getElementById('extraRates');
   extraRates.innerHTML = '';
+
   extra.forEach(c => {
     const label = document.createElement('label');
-    label.innerHTML = `${c} → USD<br><input id="rate_${c}" type="number" step="0.000001" placeholder="required">`;
+    label.innerHTML = `${escapeHtml(c)} → USD<br><input id="rate_${escapeHtml(c)}" type="number" step="0.000000001" placeholder="required">`;
     extraRates.appendChild(label);
   });
-  document.getElementById('currencyInfo').innerHTML = 'Detected currencies: ' + currencies.map(c => `<span class="pill">${c}</span>`).join(' ') + (extra.length ? '<br><span class="error">Other currency detected. Please enter conversion rate before export.</span>' : '');
+
+  const detectedBuiltIn = currencies.filter(c => BUILT_IN_CURRENCIES.has(c));
+  applyFallbackRates(detectedBuiltIn);
+
+  document.getElementById('currencyInfo').innerHTML =
+    'Detected currencies: ' + currencies.map(c => `<span class="pill">${escapeHtml(c)}</span>`).join(' ') +
+    (extra.length
+      ? `<br><span class="error">No built-in fallback for: ${extra.map(escapeHtml).join(', ')}. Please enter conversion rate before export.</span>`
+      : '<br><span class="ok">All detected currencies are mapped.</span>');
 }
 
 function renderSummary() {
@@ -812,6 +929,7 @@ function handleView(builder, title) {
 }
 
 document.getElementById('loadBtn').onclick = loadFile;
+document.getElementById('updateLiveRatesBtn').onclick = updateLiveRates;
 document.getElementById('downloadCostReportBtn').onclick = () => handleDownload(buildCostReport, 'cost_report.csv');
 document.getElementById('downloadSourceReportBtn').onclick = () => handleDownload(buildSourceReport, 'cost_report_outlining_source.csv');
 document.getElementById('downloadImeiReportBtn').onclick = () => handleDownload(buildImeiReport, 'model_imei_report.csv');
