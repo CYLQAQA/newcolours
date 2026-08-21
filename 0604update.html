@@ -93,6 +93,8 @@
       <!-- Additional batch filter input: supports Region, Model Grade, optional Offer/Price, Variant, and Location/Warehouse columns. Use ALL in Region/Location/Variant to match broadly. -->
       <input id="batchFile" type="file" accept=".xlsx,.xls,.csv" style="margin-left:8px">
       <button id="btnBatchFilter" title="Load batch filter of Region/Model Grade, optional Offer, Variant, and Location/Warehouse. Use ALL for broad matching.">Batch filter</button>
+      <button id="btnResetBatchFilter" type="button" disabled title="Remove only the active batch filter and return to the normal unfiltered stock view. Current order quantities are kept.">Reset Batch Filter</button>
+      <span id="batchFilterState" class="hint">No batch filter</span>
       <input id="nameFile" type="file" accept=".xlsx,.xls,.csv" style="margin-left:8px">
       <button id="btnNameMap" title="Load the selected name mapping file">Load name map</button>
     </div>
@@ -202,9 +204,18 @@
       <div class="row">
         <button id="btnExportOrderCsv" disabled="">Export Order CSV</button>
         <button id="btnExportValidationCsv" disabled="">Export Validation CSV</button>
-        <button id="btnResetOrderInputs" title="Clear entered quantities and offers without changing the current filters">Reset</button>
-        <span class="hint">Order exports use the quantities and offers you specify in the breakdown table below. Reset clears order inputs but keeps filters selected.</span>
+        <button id="btnHoldCurrentOrder" class="primary" disabled title="Reserve/take out the quantities currently entered for this order. They will be subtracted from the remaining stock.">Take Out / Hold Current Order</button>
+        <button id="btnResetOrderInputs" title="Clear entered quantities and offers without changing the current filters">Reset Order Inputs</button>
+        <span class="hint">After exporting/reviewing an order, hold it to subtract those units from the remaining stock before starting the next order.</span>
       </div>
+      <details class="section" id="heldStockDetails">
+        <summary>Held / Taken Stock — <strong id="heldStockSummary">0 units</strong></summary>
+        <div class="row" style="margin-top:10px">
+          <button id="btnRestoreAllHeld" type="button" disabled>Restore All Held Stock</button>
+          <span class="hint">Held stock is temporary inside this tool; restoring it puts the quantity back into the available/preorder pool it came from. The source file itself is never edited.</span>
+        </div>
+        <div id="heldStockTable" style="margin-top:10px"></div>
+      </details>
     </div>
   </section>
 
@@ -575,17 +586,51 @@ DE_SUPPORT_MVAT_B2B\tDE`;
   function isLockedSku(sku){
     return /(?:^|-)LCK(?:-|$)/i.test(String(sku||'').trim());
   }
+
+  // ===== Held / taken stock =====
+  // Holds are stored per original detail row. Available and preorder quantities are
+  // tracked separately so switching the preorder filter does not move a hold between pools.
+  let HELD_STOCK = Object.create(null);
+  let HELD_VIEW_GROUPS = new Map();
+
+  function getDetailHoldId(item){
+    if(!item) return '';
+    if(item.DetailId != null && String(item.DetailId) !== '') return String(item.DetailId);
+    // Fallback for old snapshots that do not yet contain DetailId.
+    return [item.Sku||'', item.Loc||'', item.Variant||'', item.Network||'', item.Header||'', item.Category||''].join('\u0003');
+  }
+
+  function getHeldRecord(item){
+    const id = getDetailHoldId(item);
+    return id && HELD_STOCK[id] ? HELD_STOCK[id] : null;
+  }
+
+  function getHeldParts(item){
+    const rec = getHeldRecord(item);
+    return {
+      avail: rec ? normalizeQty(rec.heldAvail) : 0,
+      pre: rec ? normalizeQty(rec.heldPre) : 0
+    };
+  }
+
+  function getRemainingPoolParts(item){
+    const held = getHeldParts(item);
+    return {
+      avail: Math.max(0, normalizeQty(item?.QtyAvail) - held.avail),
+      pre: Math.max(0, normalizeQty(item?.QtyPre) - held.pre)
+    };
+  }
+
   function getEffectiveItemQty(item, aggCtx=null){
     if(!item) return 0;
     const loc = String(item.Loc||'').trim();
     if(aggCtx && !batchAllowsItem(aggCtx.Country, aggCtx.Header, item, aggCtx)) return 0;
     if(SELECTED_WAREHOUSES.size && !SELECTED_WAREHOUSES.has(loc)) return 0;
     if(LOCKED_EXCLUDE && isLockedSku(item.Sku)) return 0;
-    const qtyAvail = normalizeQty(item.QtyAvail);
-    const qtyPre = normalizeQty(item.QtyPre);
-    if(PREORDER_MODE === 'exclude') return qtyAvail;
-    if(PREORDER_MODE === 'only') return qtyPre;
-    return qtyAvail + qtyPre;
+    const remaining = getRemainingPoolParts(item);
+    if(PREORDER_MODE === 'exclude') return remaining.avail;
+    if(PREORDER_MODE === 'only') return remaining.pre;
+    return remaining.avail + remaining.pre;
   }
   function getEffectiveAggQty(row){
     if(!row) return 0;
@@ -1257,8 +1302,10 @@ DE_SUPPORT_MVAT_B2B\tDE`;
         }
       }
       const isLocked = isLockedSku(sku);
-      const detailRow = {Sku:sku, ShortSku:shortSku, Loc:loc, QtyAvail:qtyAvail, QtyPre:qtyPre, Variant:variant, Network:network, IsLocked:isLocked, Category:category, Header:header};
-      out.push({Country:country, Sim:sim, Header:header, Color:color, Category:category, QtyAvail:qtyAvail, QtyPre:qtyPre, Sku:sku, ShortSku:shortSku, Loc:loc, Network:network, Variant:variant, IsLocked:isLocked});
+      // Deterministic ID within the loaded source so held stock can be subtracted from the exact original detail row.
+      const detailId = 'D' + out.length;
+      const detailRow = {DetailId:detailId, Sku:sku, ShortSku:shortSku, Loc:loc, QtyAvail:qtyAvail, QtyPre:qtyPre, Variant:variant, Network:network, IsLocked:isLocked, Category:category, Header:header};
+      out.push({DetailId:detailId, Country:country, Sim:sim, Header:header, Color:color, Category:category, QtyAvail:qtyAvail, QtyPre:qtyPre, Sku:sku, ShortSku:shortSku, Loc:loc, Network:network, Variant:variant, IsLocked:isLocked});
       const key=country+''+sim+''+header+''+color+''+category;
       if(!map.has(key)){
         map.set(key,{Country:country, Sim:sim, Header:header, Color:color, Category:category, QtyAvail:qtyAvail, QtyPre:qtyPre, Sku:sku, ShortSku:shortSku, Loc:loc, Network:network, MaxQtyAvail:qtyAvail, rows:[detailRow]});
@@ -1934,10 +1981,11 @@ DE_SUPPORT_MVAT_B2B\tDE`;
   function updateOrderButtons(){
     const btnOrder = document.getElementById('btnExportOrderCsv');
     const btnVal   = document.getElementById('btnExportValidationCsv');
-    if(!btnOrder || !btnVal){ return; }
+    const btnHold  = document.getElementById('btnHoldCurrentOrder');
     const hasOrders = Object.values(ORDER_ENTRIES).some(ent => ent && ent.qty && ent.qty > 0);
-    btnOrder.disabled = !hasOrders;
-    btnVal.disabled   = !hasOrders;
+    if(btnOrder) btnOrder.disabled = !hasOrders;
+    if(btnVal) btnVal.disabled = !hasOrders;
+    if(btnHold) btnHold.disabled = !hasOrders;
   }
 
   function resetOrderInputs(){
@@ -1946,6 +1994,150 @@ DE_SUPPORT_MVAT_B2B\tDE`;
     updateOrderButtons();
     scheduleRender();
     status('Reset order inputs; filters kept.');
+  }
+
+  function holdQtyFromDetail(item, agg, qty){
+    let need = Math.max(0, parseInt(qty, 10) || 0);
+    if(!item || need <= 0) return 0;
+    const id = getDetailHoldId(item);
+    if(!id) return 0;
+    const remaining = getRemainingPoolParts(item);
+    let takeAvail = 0;
+    let takePre = 0;
+    if(PREORDER_MODE === 'exclude'){
+      takeAvail = Math.min(need, remaining.avail);
+    } else if(PREORDER_MODE === 'only'){
+      takePre = Math.min(need, remaining.pre);
+    } else {
+      takeAvail = Math.min(need, remaining.avail);
+      need -= takeAvail;
+      takePre = Math.min(need, remaining.pre);
+    }
+    const taken = takeAvail + takePre;
+    if(taken <= 0) return 0;
+
+    let rec = HELD_STOCK[id];
+    if(!rec){
+      rec = HELD_STOCK[id] = {
+        DetailId:id, Country:agg?.Country||'', Sim:agg?.Sim||'', Header:agg?.Header||item.Header||'',
+        Color:agg?.Color||'', Category:agg?.Category||item.Category||'', Sku:item.Sku||'',
+        Loc:item.Loc||'', Variant:item.Variant||'', Network:item.Network||'', heldAvail:0, heldPre:0
+      };
+    }
+    rec.heldAvail = normalizeQty(rec.heldAvail) + takeAvail;
+    rec.heldPre = normalizeQty(rec.heldPre) + takePre;
+    return taken;
+  }
+
+  function currentOrderAllocations(){
+    const allocations = [];
+    const aggWithDetailOrders = new Set();
+
+    for(const key in ORDER_ENTRIES){
+      const ent = ORDER_ENTRIES[key];
+      if(!ent || !(parseInt(ent.qty,10) > 0) || !key.includes('\u0002')) continue;
+      aggWithDetailOrders.add(key.split('\u0002')[0]);
+    }
+
+    // Exact warehouse/detail quantities first.
+    for(const key in ORDER_ENTRIES){
+      if(!key.includes('\u0002')) continue;
+      const ent = ORDER_ENTRIES[key];
+      let qty = parseInt(ent?.qty, 10) || 0;
+      if(qty <= 0) continue;
+      const [aggKey, idxRaw] = key.split('\u0002');
+      const agg = AGG_MAP[aggKey];
+      const idx = parseInt(idxRaw, 10);
+      const item = agg?.rows?.[idx];
+      if(!item) continue;
+      qty = Math.min(qty, getEffectiveItemQty(item, agg));
+      if(qty > 0) allocations.push({agg, item, qty});
+    }
+
+    // Aggregated quantities are allocated across the still-available original detail rows.
+    for(const key in ORDER_ENTRIES){
+      if(key.includes('\u0002') || aggWithDetailOrders.has(key)) continue;
+      const ent = ORDER_ENTRIES[key];
+      let qtyNeeded = parseInt(ent?.qty, 10) || 0;
+      if(qtyNeeded <= 0) continue;
+      const agg = AGG_MAP[key];
+      if(!agg?.rows?.length) continue;
+      qtyNeeded = Math.min(qtyNeeded, getEffectiveAggQty(agg));
+      for(const item of agg.rows){
+        if(qtyNeeded <= 0) break;
+        const qEff = getEffectiveItemQty(item, agg);
+        if(qEff <= 0) continue;
+        const qTake = Math.min(qtyNeeded, qEff);
+        allocations.push({agg, item, qty:qTake});
+        qtyNeeded -= qTake;
+      }
+    }
+    return allocations;
+  }
+
+  function renderHeldStockPanel(){
+    const summary = document.getElementById('heldStockSummary');
+    const table = document.getElementById('heldStockTable');
+    const restoreAll = document.getElementById('btnRestoreAllHeld');
+    const records = Object.values(HELD_STOCK).filter(r => normalizeQty(r.heldAvail) + normalizeQty(r.heldPre) > 0);
+    const total = records.reduce((sum,r)=>sum + normalizeQty(r.heldAvail) + normalizeQty(r.heldPre), 0);
+    if(summary) summary.textContent = `${fmtInt(total)} units`;
+    if(restoreAll) restoreAll.disabled = total <= 0;
+    if(!table) return;
+    if(!records.length){
+      table.innerHTML = '<div class="muted">No stock is currently held.</div>';
+      HELD_VIEW_GROUPS = new Map();
+      return;
+    }
+
+    const groups = new Map();
+    for(const rec of records){
+      const groupKey = [rec.Country,rec.Header,rec.Loc,rec.Sku,rec.Variant].join('\u0004');
+      if(!groups.has(groupKey)) groups.set(groupKey,{...rec, ids:[], heldAvail:0, heldPre:0});
+      const g = groups.get(groupKey);
+      g.ids.push(rec.DetailId);
+      g.heldAvail += normalizeQty(rec.heldAvail);
+      g.heldPre += normalizeQty(rec.heldPre);
+    }
+    HELD_VIEW_GROUPS = new Map(Array.from(groups.entries()).map(([k,g])=>[k,g.ids]));
+    let html = '<table><thead><tr><th>Region</th><th>Model Grade</th><th>Location</th><th>SKU</th><th>Variant</th><th class="right">Held Qty</th><th>Pool</th><th></th></tr></thead><tbody>';
+    for(const [groupKey,g] of groups){
+      const qty = g.heldAvail + g.heldPre;
+      const pool = g.heldAvail && g.heldPre ? `Available ${fmtInt(g.heldAvail)} + Preorder ${fmtInt(g.heldPre)}` : (g.heldPre ? 'Preorder' : 'Available');
+      html += `<tr><td>${g.Country||''}</td><td>${g.Header||''}</td><td>${g.Loc||''}</td><td>${g.Sku||''}</td><td>${g.Variant||''}</td><td class="right"><strong>${fmtInt(qty)}</strong></td><td>${pool}</td><td class="right"><button type="button" class="restoreHeldGroup" data-group="${encodeURIComponent(groupKey)}">Restore</button></td></tr>`;
+    }
+    html += '</tbody></table>';
+    table.innerHTML = html;
+  }
+
+  function commitCurrentOrderToHold(){
+    const allocations = currentOrderAllocations();
+    if(!allocations.length){ alert('No order quantity is available to hold.'); return; }
+    let totalHeld = 0;
+    for(const a of allocations) totalHeld += holdQtyFromDetail(a.item, a.agg, a.qty);
+    if(totalHeld <= 0){ alert('Nothing could be held from the current remaining stock.'); return; }
+    ORDER_ENTRIES = {};
+    clearDerivedCaches();
+    renderHeldStockPanel();
+    updateOrderButtons();
+    scheduleRender();
+    const details = document.getElementById('heldStockDetails');
+    if(details) details.open = true;
+    status(`Held ${fmtInt(totalHeld)} units. Remaining stock has been updated for the next order.`);
+  }
+
+  function restoreHeldIds(ids){
+    let restored = 0;
+    for(const id of (ids || [])){
+      const rec = HELD_STOCK[id];
+      if(!rec) continue;
+      restored += normalizeQty(rec.heldAvail) + normalizeQty(rec.heldPre);
+      delete HELD_STOCK[id];
+    }
+    clearDerivedCaches();
+    renderHeldStockPanel();
+    scheduleRender();
+    status(`Restored ${fmtInt(restored)} held units back to stock.`);
   }
 
   function exportOrderCsv(){
@@ -2953,6 +3145,7 @@ for(const country of countries){
     if(BATCH_LOCATION_RULES){ BATCH_LOCATION_RULES.clear(); }
     if(BATCH_VARIANT_RULES){ BATCH_VARIANT_RULES.clear(); }
     rebuildBatchCacheToken();
+    updateBatchFilterUi();
     const bfEl = document.getElementById('batchFile');
     if(bfEl) bfEl.value = '';
     const floorEl = document.getElementById('floorFile');
@@ -2977,7 +3170,15 @@ for(const country of countries){
   // Order export buttons
   $('#btnExportOrderCsv')?.addEventListener('click', exportOrderCsv);
   $('#btnExportValidationCsv')?.addEventListener('click', exportValidationCsv);
+  document.getElementById('btnHoldCurrentOrder')?.addEventListener('click', commitCurrentOrderToHold);
   document.getElementById('btnResetOrderInputs')?.addEventListener('click', resetOrderInputs);
+  document.getElementById('btnRestoreAllHeld')?.addEventListener('click', ()=>restoreHeldIds(Object.keys(HELD_STOCK)));
+  document.getElementById('heldStockTable')?.addEventListener('click', (e)=>{
+    const btn = e.target.closest('.restoreHeldGroup');
+    if(!btn) return;
+    const key = decodeURIComponent(btn.dataset.group || '');
+    restoreHeldIds(HELD_VIEW_GROUPS.get(key) || []);
+  });
   // Take all filtered: set quantity to max for all currently filtered rows
   document.getElementById('btnTakeAllFiltered')?.addEventListener('click', ()=>{
     const rows = applyFilters(DATA.rows);
@@ -3017,6 +3218,29 @@ for(const country of countries){
       status('Name map load failed');
     }
   });
+
+  function updateBatchFilterUi(){
+    const active = !!(BATCH_SET && BATCH_SET.size);
+    const btn = document.getElementById('btnResetBatchFilter');
+    const state = document.getElementById('batchFilterState');
+    if(btn) btn.disabled = !active;
+    if(state) state.textContent = active ? `${BATCH_SET.size.toLocaleString()} batch rule(s) active` : 'No batch filter';
+  }
+
+  function resetBatchFilterOnly(){
+    BATCH_SET.clear();
+    BATCH_LOCATION_RULES.clear();
+    BATCH_VARIANT_RULES.clear();
+    rebuildBatchCacheToken();
+    clearDerivedCaches();
+    const bfEl = document.getElementById('batchFile');
+    if(bfEl) bfEl.value = '';
+    const paste = document.getElementById('batchPasteBox');
+    if(paste) paste.value = '';
+    updateBatchFilterUi();
+    scheduleRender();
+    status('Batch filter reset. Showing stock using the normal filters; current order inputs were kept.');
+  }
 
   // Batch filter loader: supports Region, Model Grade, optional Offer/Price, Variant, and Location/Warehouse columns.
   // Backward compatible with the old positional format: 1=Region, 2=Model Grade, 3=Price, 4=Variant, 5=Warehouse.
@@ -3189,12 +3413,15 @@ for(const country of countries){
     clearDerivedCaches();
     scheduleRender();
     updateOrderButtons();
+    updateBatchFilterUi();
     const hasAllRegion = Array.from(BATCH_SET).some(k => k.startsWith('ALL\t'));
     const locationModeText = Array.from(BATCH_LOCATION_RULES.values()).some(rule => rule && !rule.all) ? 'with location rules' : 'all locations';
     const variantModeText = Array.from(BATCH_VARIANT_RULES.values()).some(rule => rule && !rule.all) ? 'with variant rules' : 'all variants';
     const regionModeText = hasAllRegion ? 'all regions supported' : 'specific regions only';
     status(`Batch filter loaded from ${sourceLabel || 'input'} (${matchedAggCount.toLocaleString()} aggregate matches, ${matchedDetailCount.toLocaleString()} detail matches, ${regionModeText}, ${locationModeText}, ${variantModeText})`);
   }
+
+  document.getElementById('btnResetBatchFilter')?.addEventListener('click', resetBatchFilterOnly);
 
   document.getElementById('btnBatchFilter')?.addEventListener('click', async () => {
     const fileInput = document.getElementById('batchFile');
@@ -3238,6 +3465,8 @@ for(const country of countries){
   $('#btnDownloadMap').addEventListener('click', ()=>{ const blob=new Blob([$('#regionMapBox').value],{type:'text/plain;charset=utf-8'}); saveAs(blob,'region_mapping.txt'); });
   initTableEventDelegation();
   updateOptionalFileStatus();
+  updateBatchFilterUi();
+  renderHeldStockPanel();
   const btnExtraAllInit = document.getElementById('btnExportXlsxExtra');
   const btnExtraViewInit = document.getElementById('btnExportViewExtra');
   const btnRegionMgExtraInit = document.getElementById('btnExportRegionMgExtra');
