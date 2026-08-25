@@ -95,8 +95,9 @@
       <button id="btnBatchFilter" title="Load batch filter of Region/Model Grade, optional Offer, Variant, and Location/Warehouse. Use ALL for broad matching.">Batch filter</button>
       <button id="btnResetBatchFilter" type="button" disabled title="Remove only the active batch filter and return to the normal unfiltered stock view. Current order quantities are kept.">Reset Batch Filter</button>
       <span id="batchFilterState" class="hint">No batch filter</span>
-      <input id="nameFile" type="file" accept=".xlsx,.xls,.csv" style="margin-left:8px">
-      <button id="btnNameMap" title="Load the selected name mapping file">Load name map</button>
+      <input id="nameFile" type="file" accept=".xlsx,.xls,.csv" style="margin-left:8px" title="Fallback: choose the name matching file manually">
+      <button id="btnNameMap" title="Fallback: load the selected name matching file manually">Load name map</button>
+      <span id="nameMapState" class="hint">Checking for namematching.xlsx…</span>
     </div>
     <details class="section" id="batchPasteDetails">
       <summary>Paste batch filter rows — Region / Model Grade / price</summary>
@@ -352,6 +353,8 @@
   let NAME_MAP = {};
   let SYNONYM_MAP = {};
   let MAPPING_ACTIVE = false;
+  let PENDING_NAME_MAP = null;
+  let AUTO_NAME_MAP_CHECK_FINISHED = false;
 
   function getGradeFromSku(sku){
     if(!sku) return '';
@@ -1171,6 +1174,61 @@ DE_SUPPORT_MVAT_B2B\tDE`;
     const wb = XLSX.read(buf,{type:'array'});
     const ws = wb.Sheets[wb.SheetNames[0]];
     return XLSX.utils.sheet_to_json(ws,{defval:'',raw:false});
+  }
+
+  function setNameMapState(message){
+    const el = document.getElementById('nameMapState');
+    if(el) el.textContent = message;
+  }
+
+  function applyNameMapRows(mapRows, sourceName){
+    if(!DATA.raw || !DATA.raw.length){
+      PENDING_NAME_MAP = {rows: mapRows, name: sourceName};
+      setNameMapState(`Found ${sourceName}; waiting for stock file`);
+      return false;
+    }
+    buildSkuNameMapFromRows(mapRows, DATA.raw);
+    MAPPING_ACTIVE = true;
+    PENDING_NAME_MAP = null;
+    reprocessWithMapping();
+    buildModelSuggestions();
+    setNameMapState(`Auto-loaded: ${sourceName} (${Object.keys(NAME_MAP).length.toLocaleString()} SKU rows)`);
+    return true;
+  }
+
+  async function tryAutoLoadNameMap(){
+    const params = new URLSearchParams(window.location.search);
+    if(params.has('disableNameMapAutoload')){
+      AUTO_NAME_MAP_CHECK_FINISHED = true;
+      setNameMapState('Auto-load disabled; choose the name map manually');
+      return;
+    }
+
+    const requested = params.get('nameMap');
+    const candidates = requested ? [requested] : ['namematching.xlsx', 'namematching.xls'];
+    for(const path of candidates){
+      try{
+        const separator = path.includes('?') ? '&' : '?';
+        const response = await fetch(`${path}${separator}v=${Date.now()}`, {cache:'no-store'});
+        if(!response.ok) continue;
+        const bytes = await response.arrayBuffer();
+        const sourceName = decodeURIComponent(path.split('/').pop().split('?')[0]) || 'namematching.xlsx';
+        const file = new File([bytes], sourceName, {
+          type: sourceName.toLowerCase().endsWith('.xls')
+            ? 'application/vnd.ms-excel'
+            : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        });
+        const mapRows = await parseFile(file);
+        if(!mapRows.length) throw new Error('The name matching workbook has no data rows');
+        applyNameMapRows(mapRows, sourceName);
+        AUTO_NAME_MAP_CHECK_FINISHED = true;
+        return;
+      }catch(error){
+        console.warn(`Could not auto-load ${path}`, error);
+      }
+    }
+    AUTO_NAME_MAP_CHECK_FINISHED = true;
+    setNameMapState('Not found automatically; choose the name map manually');
   }
 
 
@@ -3049,6 +3107,10 @@ for(const country of countries){
       if(file){
         const json=await parseFile(file);
         processRaw(json);
+        if(PENDING_NAME_MAP){
+          const pending = PENDING_NAME_MAP;
+          applyNameMapRows(pending.rows, pending.name);
+        }
         if(LAST_CATEGORY_PREFILTER_INFO){
           DATA.meta.sourceRowCount = LAST_CATEGORY_PREFILTER_INFO.originalRows;
           DATA.meta.keptRowCount = LAST_CATEGORY_PREFILTER_INFO.keptRows;
@@ -3207,10 +3269,8 @@ for(const country of countries){
     if(!DATA.raw || !DATA.raw.length){ alert('Load a dataset first'); return; }
     try{
       const mapRows = await parseFile(file);
-      buildSkuNameMapFromRows(mapRows, DATA.raw);
-      MAPPING_ACTIVE = true;
-      reprocessWithMapping();
-      buildModelSuggestions();
+      applyNameMapRows(mapRows, file.name);
+      setNameMapState(`Manually loaded: ${file.name} (${Object.keys(NAME_MAP).length.toLocaleString()} SKU rows)`);
       status(`Name map loaded: ${file.name} (${Object.keys(NAME_MAP).length.toLocaleString()} SKU rows)`);
     }catch(e){
       console.error(e);
@@ -3218,6 +3278,12 @@ for(const country of countries){
       status('Name map load failed');
     }
   });
+
+  // Browsers can fetch a neighboring workbook when the tool is served from a web server.
+  // If the HTML is opened directly with file://, browser security normally blocks that
+  // read; in that case the existing manual file input remains the fallback.
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', tryAutoLoadNameMap);
+  else tryAutoLoadNameMap();
 
   function updateBatchFilterUi(){
     const active = !!(BATCH_SET && BATCH_SET.size);
