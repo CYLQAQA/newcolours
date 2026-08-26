@@ -34,7 +34,7 @@
     // Country Type -> Region mapping for Type 2 master (with IRE)
     const countryTypeToRegionMap = {
       'US':'US',
-      'IE MVA':'IRE',
+      'IE MVA':'IE',
       'CA':'CA',
       'UK MVA':'UK',
       'UK SVA':'UK',
@@ -42,7 +42,7 @@
       'SCHJP':'JP',
       'DUB':'DUB',
       'AU':'AU',
-      'IE SVA':'IRE',
+      'IE SVA':'IE',
       'JP':'JP',
       'DE':'IRE',
       'AT':'IGNORE',
@@ -71,7 +71,7 @@
       'UNITED STATES':'US',
       'USA':'US',
       'US':'US',
-      'IRELAND':'IRE',
+      'IRELAND':'IE',
       'UNITED KINGDOM':'UK',
       'UK':'UK',
       'UNITED ARAB EMIRATES':'DUB',
@@ -704,7 +704,7 @@
               <option value="JP">JP</option>
               <option value="US">US</option>
               <option value="AU">AU</option>
-              <option value="IRE">IRE</option>
+              <option value="IE">IE</option>
               <option value="UK">UK</option>
               <option value="DUB">DUB</option>
               <option value="CA">CA</option>
