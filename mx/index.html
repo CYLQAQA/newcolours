@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Margin Sheet Tool</title>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+  <link rel="stylesheet" href="assets/css/app.css" />
+</head>
+<body>
+<div class="app-shell">
+
+  <!-- ============== Header ============== -->
+  <header class="app-header">
+    <div class="brand-mark" aria-hidden="true">
+      <img src="assets/images.png" alt="Alchemy logo" />
+    </div>
+    <div class="titles">
+      <span class="org">I LOVE ALCHEMY</span>
+      <h1>Margin Sheet Tool</h1>
+      <p class="subtitle">Build margin summaries and generate pricing margin sheets. All spreadsheet processing runs locally in your browser.</p>
+    </div>
+    <div class="header-right">
+      <button id="themeToggle" class="theme-toggle" type="button" aria-label="Toggle color theme">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+        <span>Theme</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ============== Shared configuration ============== -->
+  <section class="card" id="commonCard">
+    <div class="card-head">
+      <h2>Shared Configuration</h2>
+      <span class="head-sub">Used by both Step 1 and Step 2</span>
+    </div>
+    <div class="card-body" style="display:flex;flex-direction:column;gap:12px">
+      <div>
+        <div class="field-label" style="margin-bottom:6px">Mapping File</div>
+        <label class="file-card" id="mappingFileCard" for="sharedMappingFile">
+          <span class="fc-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          </span>
+          <span class="fc-text">
+            <span class="fc-name" id="mappingFileName">Choose mapping workbook</span>
+            <span class="fc-meta" id="mappingFileMeta">en name / pricing_sku mappings · .xlsx .xls .xlsm</span>
+          </span>
+          <span class="fc-replace" id="mappingFileReplace" style="display:none">Replace</span>
+          <input id="sharedMappingFile" type="file" accept=".xlsx,.xls,.xlsm" />
+        </label>
+      </div>
+      <div id="mappingStatus" class="status-box" role="status" aria-live="polite">Choose the mapping workbook containing en name / pricing_sku mappings.</div>
+    </div>
+  </section>
+
+  <!-- ============== Step 1 — Build Margin Summary ============== -->
+  <section class="card step-card" id="step1Card">
+    <div class="card-head">
+      <span class="step-badge">1</span>
+      <h2>Build Margin Summary</h2>
+      <span class="status-pill" id="step1Pill"><span class="dot"></span><span class="pill-text">Not ready</span></span>
+    </div>
+    <div class="card-body">
+
+      <!-- Source data -->
+      <div class="subgroup">
+        <div class="subgroup-title">Source Data</div>
+
+        <div>
+          <div class="field-label" style="margin-bottom:6px">Source Margin Files</div>
+          <div id="dropZone" class="drop-zone">
+            <span class="dz-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            </span>
+            <span class="dz-main">Drag &amp; drop source Excel files here, or click to browse</span>
+            <span class="dz-sub">.xlsx / .xls / .xlsm — multiple files supported</span>
+            <input id="fileInput" type="file" multiple accept=".xlsx,.xls,.xlsm" class="hidden" />
+          </div>
+        </div>
+
+        <div>
+          <div class="field-label" style="margin-bottom:6px">Last ASP Master <span class="opt">Optional</span></div>
+          <label class="file-card" id="lastAspCard" for="lastAspInput">
+            <span class="fc-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            </span>
+            <span class="fc-text">
+              <span class="fc-name" id="lastAspName">Choose Last ASP master</span>
+              <span class="fc-meta">overlays ASP &amp; Last Sold Day per region · .xls .xlsx .xlsm</span>
+            </span>
+            <span class="fc-replace" id="lastAspReplace" style="display:none">Replace</span>
+            <input id="lastAspInput" type="file" accept=".xls,.xlsx,.xlsm" />
+          </label>
+        </div>
+      </div>
+
+      <!-- Processing settings -->
+      <div class="subgroup">
+        <div class="subgroup-title">Processing Settings</div>
+        <div class="opts-grid">
+          <label class="check"><input id="skipRowsCheckbox" type="checkbox" checked /><span>Headers start at row 3 (skip first 2 rows)</span></label>
+          <label class="check"><input id="aliasExpansionCheckbox" type="checkbox" checked /><span>Expand missing alias names from Mapping File</span></label>
+          <label class="check"><input id="aliasConflictGuardCheckbox" type="checkbox" checked /><span>Skip obvious conflicting alias groups</span></label>
+          <div class="field">
+            <span class="field-label">ASP aggregation</span>
+            <select id="aspMethod" class="select"><option value="max" selected>Max</option><option value="avg">Average</option></select>
+          </div>
+        </div>
+      </div>
+
+      <!-- FX rates -->
+      <div class="subgroup">
+        <div class="subgroup-title">FX Rates</div>
+        <div class="field">
+          <span class="field-label">Rates table <span class="opt">edit to override live rates</span></span>
+          <div class="fx-row">
+            <input id="fxRatesInput" class="input" type="text" value="HKD=0.1276,JPY=0.00616,AUD=0.6939,EUR=1.1432,GBP=1.3410,CAD=0.7056,SGD=0.7737,NZD=0.5703" />
+            <button id="updateFxBtn" class="btn btn-ghost btn-sm" type="button">Update FX</button>
+          </div>
+          <div id="fxStatus" class="source-hint fx-status-line">FX: initializing…</div>
+        </div>
+      </div>
+
+      <!-- Sheet mapping -->
+      <div class="subgroup">
+        <div class="subgroup-title">Sheet Mapping <span class="st-count" id="sheetMappingCount"></span></div>
+        <div id="mappingSection" class="hidden">
+          <table>
+            <thead><tr>
+              <th>File</th><th>Sheet</th><th>Detected Type</th><th>Select Type</th><th>Region</th><th>Include</th>
+            </tr></thead>
+            <tbody id="mappingTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="step-actions">
+        <button id="processBtn" class="btn btn-primary" type="button" disabled>Build Summary</button>
+        <button id="downloadBtn" class="btn btn-secondary" type="button" disabled>Export Margin Summary</button>
+        <span class="step-note" id="step1ActionNote">Add source files and choose a Mapping File to begin.</span>
+      </div>
+
+      <!-- Status -->
+      <div id="step1Status" class="status-box" role="status" aria-live="polite">Add source files to build a new summary, or skip this step and use an existing summary in Step 2.</div>
+
+      <!-- Result card mount point (populated by ui.js) -->
+      <div id="summaryResultMount"></div>
+
+      <!-- Collapsible full preview. #output receives the full table from aggregator.js;
+           it stays in the DOM so the SheetJS export reads it live. -->
+      <div id="outputAccordion" class="accordion hidden">
+        <button class="accordion-head" id="outputAccordionHead" type="button" aria-expanded="false">
+          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+          <span>Preview Margin Summary</span>
+          <span class="acc-meta" id="outputAccordionMeta"></span>
+        </button>
+        <div class="accordion-body">
+          <div class="accordion-body-inner">
+            <div class="table-scroll">
+              <div id="output"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ============== Step 2 — Generate Margin Sheet ============== -->
+  <section class="card step-card" id="step2Card">
+    <div class="card-head">
+      <span class="step-badge">2</span>
+      <h2>Generate Margin Sheet</h2>
+      <span class="status-pill" id="step2Pill"><span class="dot"></span><span class="pill-text">Waiting on Step 1</span></span>
+    </div>
+    <div class="card-body">
+
+      <!-- Summary source -->
+      <div class="subgroup">
+        <div class="subgroup-title">Summary Source</div>
+        <div class="segment">
+          <label>
+            <input id="summaryGenerated" name="summarySource" type="radio" value="generated" disabled />
+            <span class="seg-title">Generated Summary</span>
+            <span class="seg-meta" id="generatedSummaryHint">Generated from Step 1 — not built yet.</span>
+          </label>
+          <label>
+            <input id="summaryUploaded" name="summarySource" type="radio" value="uploaded" checked />
+            <span class="seg-title">Existing Summary File</span>
+            <span class="seg-meta">Use a previously generated summary workbook.</span>
+          </label>
+        </div>
+        <div>
+          <div class="field-label" style="margin-bottom:6px">Existing Summary File</div>
+          <label class="file-card" id="summaryFileCard" for="summaryFile">
+            <span class="fc-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            </span>
+            <span class="fc-text">
+              <span class="fc-name" id="summaryFileName">Choose summary workbook</span>
+              <span class="fc-meta">.xlsx .xls .xlsm</span>
+            </span>
+            <span class="fc-replace" id="summaryFileReplace" style="display:none">Replace</span>
+            <input id="summaryFile" type="file" accept=".xlsx,.xls,.xlsm" disabled />
+          </label>
+        </div>
+      </div>
+
+      <!-- Request inputs -->
+      <div class="subgroup">
+        <div class="subgroup-title">Request Data</div>
+        <div class="grid-2">
+          <div>
+            <div class="field-label" style="margin-bottom:6px">Request File</div>
+            <label class="file-card" id="reqFileCard" for="reqFile">
+              <span class="fc-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              </span>
+              <span class="fc-text">
+                <span class="fc-name" id="reqFileName">Choose request workbook</span>
+                <span class="fc-meta">.xlsx .xls .xlsm</span>
+              </span>
+              <span class="fc-replace" id="reqFileReplace" style="display:none">Replace</span>
+              <input id="reqFile" type="file" accept=".xlsx,.xls,.xlsm" />
+            </label>
+          </div>
+          <div>
+            <div class="field-label" style="margin-bottom:6px">Price Lock File <span class="opt">Optional</span></div>
+            <label class="file-card" id="priceFileCard" for="priceFile">
+              <span class="fc-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              </span>
+              <span class="fc-text">
+                <span class="fc-name" id="priceFileName">Choose price lock file</span>
+                <span class="fc-meta">.xlsx .xls .xlsm .csv</span>
+              </span>
+              <span class="fc-replace" id="priceFileReplace" style="display:none">Replace</span>
+              <input id="priceFile" type="file" accept=".xlsx,.xls,.xlsm,.csv" />
+            </label>
+          </div>
+        </div>
+        <div class="step-actions" style="margin-top:12px">
+          <button id="loadBtn" class="btn btn-secondary" type="button">Load Step 2</button>
+        </div>
+      </div>
+
+      <!-- Column selection -->
+      <div class="subgroup">
+        <div class="subgroup-title">Column Selection</div>
+        <div class="grid-3">
+          <div class="field">
+            <span class="field-label">Region Column <span class="opt">optional</span></span>
+            <select id="regionCol" class="select"><option value=""></option></select>
+          </div>
+          <div class="field">
+            <span class="field-label">Default Region <span class="opt">if no Region column</span></span>
+            <select id="defaultRegion" class="select"><option value=""></option></select>
+          </div>
+          <div class="field">
+            <span class="field-label">Model Grade Column</span>
+            <select id="modelCol" class="select"></select>
+          </div>
+          <div class="field">
+            <span class="field-label">Quantity Column</span>
+            <select id="qtyCol" class="select"></select>
+          </div>
+          <div class="field">
+            <span class="field-label">Offer Column</span>
+            <select id="offerCol" class="select"></select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Request preview -->
+      <div class="subgroup">
+        <div class="subgroup-title">Request Preview <span class="st-count">first 5 rows</span></div>
+        <div id="preview" class="preview-wrap"><div class="muted" style="padding:12px">Load Step 2 to preview the request.</div></div>
+      </div>
+
+      <!-- Options -->
+      <div class="subgroup">
+        <div class="subgroup-title">Options</div>
+        <div class="opts-grid">
+          <label class="check"><input id="compareRegions" type="checkbox" /><span>Compare other regions</span></label>
+          <label class="check"><input id="compareLastSold" type="checkbox" checked /><span>Add Last Sold Day for compared regions</span></label>
+          <label class="check"><input id="reserveOriginal" type="checkbox" /><span>Reserve original request columns in output</span></label>
+          <label class="check"><input id="jpy" type="checkbox" /><span>Japanese yen</span></label>
+          <label class="check"><input id="dropNoCloadCheckbox" type="checkbox" /><span>Drop rows with no C+Load</span></label>
+          <label class="check"><input id="splitByRegionCheckbox" type="checkbox" /><span>Split by region (one tab per region)</span></label>
+          <label class="check" style="flex-direction:column;align-items:flex-start;gap:6px">
+            <span style="display:flex;gap:8px;align-items:flex-start">
+              <input id="foreignFxCheckbox" type="checkbox" /><span>Foreign FX</span>
+            </span>
+            <span class="fx-inline">
+              <span class="muted" style="white-space:nowrap">FX rate (→ USD):</span>
+              <input id="fxRate" class="input" type="number" step="any" placeholder="e.g. 1.33" disabled />
+            </span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Region compare -->
+      <div class="subgroup">
+        <div class="subgroup-title">Compare Regions</div>
+        <div class="muted" id="availableRegions">Available summary regions: -</div>
+        <div id="regionChoices" class="regions"><span class="muted">Load Step 2 first.</span></div>
+      </div>
+
+      <!-- Actions -->
+      <div class="step-actions">
+        <button id="generateBtn" class="btn btn-primary" type="button" disabled>Generate Margin Sheet</button>
+        <button id="resetBtn" class="btn btn-ghost" type="button">Reset All</button>
+        <span class="step-note" id="step2ActionNote">Load the request file and verify columns before generating.</span>
+      </div>
+
+      <!-- Status -->
+      <div id="status" class="status-box" role="status" aria-live="polite">Ready.</div>
+
+      <!-- Dropped rows preview (Step 2) -->
+      <div id="droppedRowsPanel" class="hidden" style="margin-top:12px">
+        <div class="subgroup-title" style="margin-bottom:8px">Dropped Rows <span class="st-count">no C+Load</span></div>
+        <div id="droppedRowsTable" class="preview-wrap"><div class="muted" style="padding:12px">No rows were dropped.</div></div>
+      </div>
+
+    </div>
+  </section>
+
+  <div class="footer-note">Excel libraries (SheetJS, ExcelJS) load from CDN. Your spreadsheet files are processed locally in the browser and never uploaded.</div>
+</div>
+
+<script src="assets/js/aggregator.js"></script>
+<script src="assets/js/generator.js"></script>
+<script src="assets/js/app.js"></script>
+<script src="assets/js/ui.js"></script>
+</body>
+</html>

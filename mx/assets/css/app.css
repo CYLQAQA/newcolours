@@ -1,0 +1,179 @@
+/* Layout & page assembly — Margin Sheet Tool v2.
+   Imports the token + component layers, then assembles the page. */
+@import url("variables.css");
+@import url("components.css");
+
+* { box-sizing: border-box; }
+
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg-app);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* ---------- Page shell ---------- */
+.app-shell {
+  width: min(1240px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: var(--sp-6) 0 var(--sp-7);
+  display: flex; flex-direction: column; gap: var(--sp-4);
+}
+
+/* ---------- Header ---------- */
+.app-header {
+  display: flex; align-items: flex-start; gap: var(--sp-4);
+  padding-bottom: var(--sp-4);
+  border-bottom: 1px solid var(--border);
+}
+/* Brand logo. The source PNG is a wide (~4:1) black-on-white horizontal
+   logo, so we display it at natural aspect ratio (height-constrained)
+   instead of forcing it into a square. On the dark theme the logo would
+   disappear against the card, so the mark sits on a rounded white chip. */
+.brand-mark {
+  height: 56px; width: auto; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  padding: 6px 12px;
+  border-radius: var(--r-md);
+  background: #ffffff;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+}
+.brand-mark img {
+  display: block;
+  height: 100%; width: auto;
+  max-width: 220px;
+  object-fit: contain;
+}
+.app-header .titles { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.app-header h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -.015em; color: var(--text-primary); }
+.app-header .org {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase;
+  color: var(--text-muted);
+}
+.app-header .org .org-tag {
+  padding: 2px 8px; border-radius: var(--r-pill);
+  background: var(--bg-subtle); border: 1px solid var(--border); color: var(--text-secondary);
+  letter-spacing: 0; text-transform: none; font-weight: 600;
+}
+.app-header .subtitle { margin: 4px 0 0; font-size: 13px; color: var(--text-secondary); }
+.app-header .header-right { margin-left: auto; display: flex; align-items: center; gap: var(--sp-2); }
+
+/* Theme toggle */
+.theme-toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 32px; padding: 0 12px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--border-strong); background: var(--bg-card);
+  color: var(--text-secondary); font-size: 12px; font-weight: 600; cursor: pointer;
+  transition: all var(--dur-fast) var(--ease);
+}
+.theme-toggle:hover { border-color: var(--primary); color: var(--primary); }
+.theme-toggle svg { width: 14px; height: 14px; }
+
+/* ---------- Section subgroups inside a card ---------- */
+.subgroup { display: flex; flex-direction: column; gap: var(--sp-3); }
+.subgroup + .subgroup {
+  margin-top: var(--sp-5); padding-top: var(--sp-5);
+  border-top: 1px solid var(--border);
+}
+.subgroup-title {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--text-muted);
+}
+.subgroup-title .st-count { color: var(--text-muted); font-weight: 500; }
+
+/* ---------- Grids for field rows ---------- */
+.grid-2  { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-3); }
+.grid-3  { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-3); }
+.grid-1-2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: var(--sp-3); }
+.opts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--sp-3); }
+
+/* FX row layout */
+.fx-row { display: grid; grid-template-columns: 1fr auto; gap: var(--sp-2); align-items: end; }
+.fx-status-line { grid-column: 1 / -1; }
+
+/* Foreign-FX inline rate */
+.fx-inline { display: flex; align-items: center; gap: var(--sp-2); margin-top: 4px; }
+.fx-inline input { width: 130px; }
+
+/* ---------- Mapping table cell helpers (aggregator injects utility-ish classes) ---------- */
+#mappingSection { overflow-x: auto; }
+#mappingSection table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+#mappingSection th, #mappingSection td {
+  padding: 7px 12px; border-bottom: 1px solid var(--border); white-space: nowrap;
+}
+#mappingSection thead th {
+  background: var(--bg-subtle); color: var(--text-secondary); text-align: left;
+  font-size: 11px; font-weight: 650; letter-spacing: .03em; text-transform: uppercase;
+}
+
+/* Neutralize the tailwind utility classes aggregator writes into rows so they don't fight our CSS */
+#mappingSection td[class*="px-3"], #mappingSection td[class*="py-2"], #mappingSection td[class*="text-sm"], #mappingSection td[class*="text-center"] {
+  /* keep our .data-table-derived styling via parent; these utilities are decorative only */
+}
+
+/* ---------- Step 1 result / preview assembly ---------- */
+.step-actions { display: flex; gap: var(--sp-2); flex-wrap: wrap; align-items: center; margin-top: var(--sp-4); }
+.step-note { font-size: 12px; color: var(--text-muted); margin-left: auto; }
+
+#output { min-width: 0; }
+/* Notes aggregator.js injects into #output use inert tailwind utility classes
+   (Tailwind CDN is intentionally dropped). Style them by their intent so they
+   still render as polished inline notes. */
+#output .mt-3 { margin-top: var(--sp-3); }
+#output .text-sm { font-size: 12px; }
+#output .bg-white { background: var(--bg-card); }
+#output .border { border: 1px solid var(--border); }
+#output .border-gray-200 { border-color: var(--border); }
+#output .border-red-200 { border-color: var(--danger-border); }
+#output .rounded { border-radius: var(--r-md); }
+#output .p-3 { padding: var(--sp-3); }
+#output .text-gray-700 { color: var(--text-secondary); }
+#output .text-red-700 { color: var(--danger); }
+#output table.output-table { width: 100%; }
+
+/* ---------- Footer ---------- */
+.footer-note {
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--border);
+  color: var(--text-muted); font-size: 11px; text-align: center;
+}
+
+/* ---------- Responsive ---------- */
+@media (max-width: 920px) {
+  .grid-3, .grid-1-2 { grid-template-columns: 1fr; }
+  .grid-2 { grid-template-columns: 1fr; }
+  .segment { grid-template-columns: 1fr; }
+  .app-header { flex-wrap: wrap; }
+  .app-header .header-right { margin-left: 0; }
+}
+@media (max-width: 620px) {
+  .opts-grid { grid-template-columns: 1fr; }
+  .app-shell { width: calc(100% - 24px); }
+  .app-header h1 { font-size: 19px; }
+}
+
+/* ---------- Motion preference ---------- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .accordion-body { transition: none; }
+}
+
+/* Print sanity (in case anyone prints a summary preview) */
+@media print {
+  .app-header, .step-actions, .footer-note { display: none; }
+  .accordion-body { max-height: none !important; }
+}
