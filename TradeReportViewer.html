@@ -127,10 +127,11 @@
   <div class="actionBlock">
     <div class="actionTitle">Download output CSV</div>
     <div class="row">
-      <button class="primary" id="downloadCostReportBtn">Download 1. Cost report</button>
+      <button class="primary" id="downloadCostReportBtn">Download 1. Cost report (Short SKU)</button>
       <button class="primary" id="downloadSourceReportBtn">Download 2. Cost report outlining source</button>
       <button class="primary" id="downloadImeiReportBtn">Download 3. Model IMEI report</button>
       <button class="primary" id="downloadOrderReportBtn">Download 4. Order CSV</button>
+      <button class="primary" id="downloadFullSkuCostReportBtn">Download 5. Cost report (Full SKU)</button>
       <span id="filteredCount" class="muted"></span>
     </div>
   </div>
@@ -138,10 +139,11 @@
   <div class="actionBlock viewBlock">
     <div class="actionTitle">View online table</div>
     <div class="row">
-      <button id="viewCostReportBtn">View 1. Cost report</button>
+      <button id="viewCostReportBtn">View 1. Cost report (Short SKU)</button>
       <button id="viewSourceReportBtn">View 2. Cost report outlining source</button>
       <button id="viewImeiReportBtn">View 3. Model IMEI report</button>
       <button id="viewOrderReportBtn">View 4. Order CSV</button>
+      <button id="viewFullSkuCostReportBtn">View 5. Cost report (Full SKU)</button>
     </div>
   </div>
 
@@ -886,6 +888,15 @@ function buildCostReport() {
   const rows = applyRates(filteredRows());
   return groupAverage(rows, ['Model Grade', 'Short SKU']).map(r => ({'Model Grade': r['Model Grade'], 'Short SKU': r['Short SKU'], Cost: r.Cost.toFixed(2), qty: r.qty}));
 }
+function buildFullSkuCostReport() {
+  const selectedRows = filteredRows();
+  const missingSkuRows = selectedRows.filter(r => !String(r.SKU ?? '').trim());
+  if (missingSkuRows.length) {
+    throw new Error(`${missingSkuRows.length.toLocaleString()} selected row(s) have no SKU. Full SKU cost report cannot be created.`);
+  }
+  const rows = applyRates(selectedRows);
+  return groupAverage(rows, ['Model Grade', 'SKU']).map(r => ({'Model Grade': r['Model Grade'], SKU: r.SKU, Cost: r.Cost.toFixed(2), qty: r.qty}));
+}
 function buildSourceReport() {
   const rows = applyRates(filteredRows());
   if (hasVendorColumn) {
@@ -931,10 +942,12 @@ function handleView(builder, title) {
 document.getElementById('loadBtn').onclick = loadFile;
 document.getElementById('updateLiveRatesBtn').onclick = updateLiveRates;
 document.getElementById('downloadCostReportBtn').onclick = () => handleDownload(buildCostReport, 'cost_report.csv');
+document.getElementById('downloadFullSkuCostReportBtn').onclick = () => handleDownload(buildFullSkuCostReport, 'cost_report_full_sku.csv');
 document.getElementById('downloadSourceReportBtn').onclick = () => handleDownload(buildSourceReport, 'cost_report_outlining_source.csv');
 document.getElementById('downloadImeiReportBtn').onclick = () => handleDownload(buildImeiReport, 'model_imei_report.csv');
 document.getElementById('downloadOrderReportBtn').onclick = () => handleDownload(buildOrderReport, 'order.csv');
-document.getElementById('viewCostReportBtn').onclick = () => handleView(buildCostReport, 'Cost report');
+document.getElementById('viewCostReportBtn').onclick = () => handleView(buildCostReport, 'Cost report (Short SKU)');
+document.getElementById('viewFullSkuCostReportBtn').onclick = () => handleView(buildFullSkuCostReport, 'Cost report (Full SKU)');
 document.getElementById('viewSourceReportBtn').onclick = () => handleView(buildSourceReport, 'Cost report outlining source');
 document.getElementById('viewImeiReportBtn').onclick = () => handleView(buildImeiReport, 'Model IMEI report');
 document.getElementById('viewOrderReportBtn').onclick = () => handleView(buildOrderReport, 'Order CSV');
