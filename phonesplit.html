@@ -125,13 +125,14 @@
 <body>
     <div class="container">
         <div class="header">
-            <div class="title">📱 Stock List Splitter</div>
-            <div class="subtitle">Split all inventory by location — Apple / Non-Apple, with namematching English names</div>
+            <div class="title">📱 Phone List Splitter</div>
+            <div class="subtitle">Split inventory by location with Apple/Non-Apple separation — IEFSET tab includes all stock + namematching</div>
         </div>
 
         <div class="excel-note">
-            <strong>✅ All stock:</strong> No longer limited to iPhone / Smartphones. Tablets, wearables, and other mapped categories are included.
-            <br><strong>🔤 Naming:</strong> Auto-loads <code>namematching.xlsx</code> from the same folder as this HTML (when served over http/https). Fallback: pick the file manually. SKU → English name, then <code>-Grade</code>.
+            <strong>IEFSET only:</strong> The <code>HK_FSET</code> tab keeps all stock (phones, tablets, wearables, etc.) and uses <code>namematching.xlsx</code> for English names.
+            <br><strong>Other tabs:</strong> Unchanged — smartphones only, original <code>Model Capacity-Grade</code> names. Name matching is not applied.
+            <br><strong>🔤 Naming file:</strong> Auto-loads <code>namematching.xlsx</code> from the same folder when hosted. Fallback: pick the file manually. Used only for IEFSET rows.
             <br><strong>🇨🇦 CA / 🔧 Floor USD / 🧹 Filtered button:</strong> Unchanged. The orange button still only removes US/HK iPhone 14 Pro Max E Sim qty and all US/HK iPhone 12 Pro Max rows.
         </div>
 
@@ -250,7 +251,14 @@
             'USD': 1, 'AUD': 0.67, 'JPY': 0.007, 'EUR': 1.11, 'GBP': 1.31, 'AED': 0.27, 'CAD': 0.74
         };
 
-        const VALID_GRADES = ['A', 'B', 'C', 'Z', 'W', 'AS', 'CP', 'WP', 'NB', 'D', 'DX', 'F'];
+        const VALID_GRADES = ['A', 'B', 'C', 'Z', 'W', 'AS', 'CP', 'WP', 'NB'];
+        const IEFSET_EXTRA_GRADES = ['D', 'DX', 'F'];
+
+        function isIefsetRow(row){
+            const code = String(row && row.location_code != null ? row.location_code : '').trim();
+            const country = String(row && row.Country != null ? row.Country : locationMapping[code] || '').trim();
+            return country === 'HK_FSET' || /^HK_(IE_)?FSET/i.test(code);
+        }
 
         function getIphoneNumberFromModel(modelStr){
             const s = (modelStr || '').toString();
@@ -416,12 +424,19 @@
 
             MAPPING_ACTIVE = Object.keys(NAME_MAP).length > 0;
         }
+        function buildOriginalModelGrade(row){
+            const model = (row.Model || '').toString().trim();
+            const cap = (row.Capacity || '').toString().trim();
+            const grade = (row.Grade || '').toString().trim();
+            return `${model} ${cap}-${grade}`.replace(/\s+/g, ' ').trim();
+        }
         function buildModelGrade(row){
             const sku = (row.SKU || row.Sku || '').toString().trim();
             let grade = (row.Grade || '').toString().trim();
             if(!grade && sku) grade = getGradeFromSku(sku);
 
-            if(MAPPING_ACTIVE && sku){
+            // Name matching is IEFSET-only. Other tabs keep Model + Capacity-Grade.
+            if(isIefsetRow(row) && MAPPING_ACTIVE && sku){
                 try{
                     const canonical = getCanonicalFromSku(sku);
                     if(canonical){
@@ -431,6 +446,8 @@
                     }
                 }catch(e){}
             }
+
+            if(!isIefsetRow(row)) return buildOriginalModelGrade(row);
 
             const model = (row.Model || '').toString().trim();
             let cap = (row.Capacity || '').toString().trim();
@@ -652,7 +669,7 @@
 - Raw CA rows: ${caRows.length}
 - Processed CA rows: ${processedCaData.length}
 - Final CA rows: ${finalCaData.length}
-- Name map: ${MAPPING_ACTIVE ? NAME_MAP_SOURCE + ' (' + Object.keys(NAME_MAP).length + ' SKUs)' : 'not loaded — using Model + Capacity'}
+- Name map (IEFSET only): ${MAPPING_ACTIVE ? NAME_MAP_SOURCE + ' (' + Object.keys(NAME_MAP).length + ' SKUs)' : 'not loaded — IEFSET will use Model + Capacity'}
 `;
                 updateStatus(debugInfo, 'processing');
 
@@ -666,7 +683,7 @@
                 showManualDownloadLinks([{ filename, blob: originalBlob }]);
 
                 updateStatus(`🎉 SUCCESS! Original output saved: ${filename}`, 'success');
-                alert(`Processing completed successfully!\n\nOutput saved to: ${filename}\n\n✅ Full stock output (not iPhone-only).\n\n${debugInfo}`);
+                alert(`Processing completed successfully!\n\nOutput saved to: ${filename}\n\n✅ Other tabs = smartphones only (original names).\n✅ HK_FSET tab = all stock + namematching.\n\n${debugInfo}`);
             } catch (error) {
                 console.error('Processing error:', error);
                 updateStatus(`❌ Error: ${error.message}`, 'error');
@@ -716,7 +733,7 @@
 - Raw CA rows: ${caRows.length}
 - Processed CA rows: ${processedCaData.length}
 - Final CA rows: ${finalCaData.length}
-- Name map: ${MAPPING_ACTIVE ? NAME_MAP_SOURCE + ' (' + Object.keys(NAME_MAP).length + ' SKUs)' : 'not loaded'}
+- Name map (IEFSET only): ${MAPPING_ACTIVE ? NAME_MAP_SOURCE + ' (' + Object.keys(NAME_MAP).length + ' SKUs)' : 'not loaded'}
 `;
 
                 const timestamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '').replace(/(\d{4})(\d{4})/, '$1_$2_');
@@ -860,6 +877,8 @@
 
         function processInventoryData(data) {
             const requiredColumns = ['SKU', 'Manufacturer', 'Model', 'Capacity', 'Grade', 'location_code', 'qty_available', 'floor_price', 'currency'];
+            const hasCategory = data.length > 0 && 'Category' in data[0];
+            if (hasCategory) requiredColumns.push('Category');
             const missingColumns = requiredColumns.filter(col => data.length === 0 || !(col in data[0]));
             if (missingColumns.length > 0) {
                 throw new Error(`Missing required columns: ${missingColumns.join(', ')}`);
@@ -873,15 +892,23 @@
 
             let filtered = data.filter(row => {
                 const isCA = (row.location_code === 'CA_B2B' || row.location_code === 'CA_B2B_Boxed' || row.location_code === 'CA_B2B_Boxwd');
+                const isFset = isIefsetRow(row);
 
-                // No category filter — keep phones, tablets, wearables, and anything else with a mapped location.
                 row.Country = locationMapping[row.location_code];
                 if (!row.Country) {
                     if (isCA) console.log('DEBUG: CA row filtered out - no country mapping for:', row.location_code);
                     return false;
                 }
 
-                if (row.location_code !== 'HK_HTR_B2B_VZW' && !VALID_GRADES.includes(String(row.Grade || '').trim())) {
+                // Other tabs stay smartphone-only. IEFSET keeps every category.
+                if (!isFset && hasCategory && row.Category !== 'Smartphones') {
+                    if (isCA) console.log('DEBUG: CA row filtered out by category:', row.Category);
+                    return false;
+                }
+
+                const grade = String(row.Grade || '').trim();
+                const allowedGrades = isFset ? VALID_GRADES.concat(IEFSET_EXTRA_GRADES) : VALID_GRADES;
+                if (row.location_code !== 'HK_HTR_B2B_VZW' && !allowedGrades.includes(grade)) {
                     if (isCA) console.log('DEBUG: CA row filtered out by grade:', row.Grade);
                     return false;
                 }
@@ -896,10 +923,10 @@
                 row.Capacity = (row.Capacity || '').toString().trim();
                 row.Grade = (row.Grade || '').toString().trim();
                 row.Category = (row.Category || '').toString().trim();
-                const before = `${row.Model} ${row.Capacity}-${row.Grade}`.replace(/\s+/g, ' ').trim();
+                const before = buildOriginalModelGrade(row);
                 row['Model grade'] = buildModelGrade(row);
-                if (MAPPING_ACTIVE && getCanonicalFromSku(row.SKU)) mappedNameCount++;
-                else unmappedNameCount++;
+                if (isIefsetRow(row) && MAPPING_ACTIVE && getCanonicalFromSku(row.SKU)) mappedNameCount++;
+                else if (isIefsetRow(row)) unmappedNameCount++;
                 if (!row['Model grade']) row['Model grade'] = before || 'Unknown Model';
 
                 row.Sim = classifySim(row.Model, row.SKU, getVariantTextFromRow(row), row.Category);
@@ -911,7 +938,7 @@
                 row.USD_floor_price = row.floor_price * (exchangeRates[row.currency] || 1);
             });
 
-            console.log(`DEBUG: Named via map: ${mappedNameCount}; fallback Model+Capacity: ${unmappedNameCount}`);
+            console.log(`DEBUG: IEFSET named via map: ${mappedNameCount}; IEFSET fallback Model+Capacity: ${unmappedNameCount}`);
             return filtered;
         }
 
