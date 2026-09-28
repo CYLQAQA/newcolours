@@ -3,54 +3,30 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>📱 Stock List Splitter</title>
+    <title>📱 Phone List Splitter</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'Arial', sans-serif;
-            background: #f0f0f0;
-            padding: 20px;
-            min-height: 100vh;
-        }
-        .container {
-            max-width: 860px;
-            margin: 0 auto;
-            background: white;
-            border-radius: 10px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            padding: 30px;
-        }
+        body { font-family: 'Arial', sans-serif; background: #f0f0f0; padding: 20px; min-height: 100vh; }
+        .container { max-width: 860px; margin: 0 auto; background: white; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); padding: 30px; }
         .header { text-align: center; margin-bottom: 30px; }
         .title { font-size: 28px; font-weight: bold; color: #2c3e50; margin-bottom: 10px; }
         .subtitle { font-size: 14px; color: #7f8c8d; }
-        .file-section {
-            border: 2px solid #34495e;
-            border-radius: 8px;
-            padding: 20px;
-            margin-bottom: 20px;
-            background: #f8f9fa;
-        }
+        .file-section { border: 2px solid #34495e; border-radius: 8px; padding: 20px; margin-bottom: 20px; background: #f8f9fa; }
         .section-title { font-size: 16px; font-weight: bold; color: #34495e; margin-bottom: 15px; }
         .file-group { margin-bottom: 15px; }
         .file-label { font-size: 14px; font-weight: bold; color: #2c3e50; margin-bottom: 8px; display: block; }
         .file-input-group { display: flex; align-items: center; gap: 15px; margin-bottom: 8px; flex-wrap: wrap; }
         .file-input { display: none; }
-        .file-button {
-            background: #3498db; color: white; padding: 10px 20px; border: none;
-            border-radius: 5px; cursor: pointer; font-size: 12px; transition: background 0.3s;
-        }
+        .file-button { background: #3498db; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; font-size: 12px; transition: background 0.3s; }
         .file-button:hover { background: #2980b9; }
         .file-button.usd { background: #f39c12; }
         .file-button.usd:hover { background: #e67e22; }
         .file-button.map { background: #8e44ad; }
         .file-button.map:hover { background: #7d3c98; }
-        .skip-button {
-            background: #95a5a6; color: white; padding: 10px 20px; border: none;
-            border-radius: 5px; cursor: pointer; font-size: 12px; transition: background 0.3s;
-        }
+        .skip-button { background: #95a5a6; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; font-size: 12px; transition: background 0.3s; }
         .skip-button:hover { background: #7f8c8d; }
         .file-status { font-size: 12px; color: #7f8c8d; }
         .file-status.selected { color: #27ae60; }
@@ -59,66 +35,29 @@
         .checkbox-group { margin-bottom: 15px; }
         .checkbox-group input { margin-right: 8px; }
         .button-group { display: flex; justify-content: space-between; align-items: center; }
-        .process-button {
-            background: #27ae60; color: white; padding: 15px 40px; border: none;
-            border-radius: 8px; font-size: 18px; font-weight: bold; cursor: pointer;
-            transition: background 0.3s; border: 3px solid transparent;
-        }
+        .process-button { background: #27ae60; color: white; padding: 15px 40px; border: none; border-radius: 8px; font-size: 18px; font-weight: bold; cursor: pointer; transition: background 0.3s; }
         .process-button:hover { background: #229954; }
         .process-button:disabled { background: #bdc3c7; cursor: not-allowed; }
-        .filtered-output-section {
-            margin-top: 15px; padding: 15px; border: 2px dashed #f39c12;
-            border-radius: 8px; background: #fff8e8; text-align: center;
-        }
+        .filtered-output-section { margin-top: 15px; padding: 15px; border: 2px dashed #f39c12; border-radius: 8px; background: #fff8e8; text-align: center; }
         .filtered-note { font-size: 13px; color: #7a4b00; margin-bottom: 10px; font-weight: bold; }
-        .filtered-button-main {
-            background: #f39c12; color: white; padding: 16px 36px; border: none;
-            border-radius: 8px; font-size: 18px; font-weight: bold; cursor: pointer;
-            transition: background 0.3s; width: 100%; max-width: 420px;
-        }
+        .filtered-button-main { background: #f39c12; color: white; padding: 16px 36px; border: none; border-radius: 8px; font-size: 18px; font-weight: bold; cursor: pointer; width: 100%; max-width: 420px; }
         .filtered-button-main:hover { background: #e67e22; }
         .filtered-button-main:disabled { background: #bdc3c7; cursor: not-allowed; }
-        .exit-button {
-            background: #e74c3c; color: white; padding: 10px 20px; border: none;
-            border-radius: 5px; cursor: pointer; font-size: 14px; transition: background 0.3s;
-        }
+        .exit-button { background: #e74c3c; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; font-size: 14px; }
         .exit-button:hover { background: #c0392b; }
         .alchemy-text { font-size: 10px; color: #95a5a6; margin-right: 10px; }
-        .status {
-            margin-top: 20px; padding: 15px; background: #ecf0f1; border-radius: 5px;
-            font-size: 14px; color: #2c3e50; border-left: 4px solid #3498db; white-space: pre-wrap;
-        }
+        .status { margin-top: 20px; padding: 15px; background: #ecf0f1; border-radius: 5px; font-size: 14px; color: #2c3e50; border-left: 4px solid #3498db; white-space: pre-wrap; }
         .hidden { display: none; }
         .processing { color: #f39c12; }
         .success { color: #27ae60; border-left-color: #27ae60; }
         .error { color: #e74c3c; border-left-color: #e74c3c; }
-        .progress {
-            width: 100%; height: 20px; background: #ecf0f1; border-radius: 10px;
-            overflow: hidden; margin: 10px 0;
-        }
-        .progress-bar {
-            height: 100%; background: linear-gradient(90deg, #3498db, #2ecc71);
-            width: 0%; transition: width 0.3s; animation: pulse 1.5s infinite;
-        }
-        @keyframes pulse {
-            0% { opacity: 0.6; }
-            50% { opacity: 1; }
-            100% { opacity: 0.6; }
-        }
-        .excel-note {
-            background: #e8f5e8; border: 1px solid #27ae60; border-radius: 5px;
-            padding: 10px; margin-bottom: 20px; font-size: 12px; color: #2c3e50;
-        }
+        .progress { width: 100%; height: 20px; background: #ecf0f1; border-radius: 10px; overflow: hidden; margin: 10px 0; }
+        .progress-bar { height: 100%; background: linear-gradient(90deg, #3498db, #2ecc71); width: 0%; animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0% { opacity: 0.6; } 50% { opacity: 1; } 100% { opacity: 0.6; } }
+        .excel-note { background: #e8f5e8; border: 1px solid #27ae60; border-radius: 5px; padding: 10px; margin-bottom: 20px; font-size: 12px; color: #2c3e50; }
         .excel-note strong { color: #27ae60; }
-        .download-links {
-            margin-top: 15px; padding: 15px; background: #fff7e6; border-radius: 5px;
-            border-left: 4px solid #f39c12; font-size: 14px; color: #2c3e50;
-        }
-        .download-link-button {
-            display: inline-block; margin: 8px 8px 0 0; padding: 10px 14px;
-            background: #3498db; color: white; border-radius: 5px;
-            text-decoration: none; font-size: 13px; font-weight: bold;
-        }
+        .download-links { margin-top: 15px; padding: 15px; background: #fff7e6; border-radius: 5px; border-left: 4px solid #f39c12; font-size: 14px; color: #2c3e50; }
+        .download-link-button { display: inline-block; margin: 8px 8px 0 0; padding: 10px 14px; background: #3498db; color: white; border-radius: 5px; text-decoration: none; font-size: 13px; font-weight: bold; }
         .download-link-button:hover { background: #2980b9; }
     </style>
 </head>
@@ -132,45 +71,34 @@
         <div class="excel-note">
             <strong>IEFSET only:</strong> The <code>HK_FSET</code> tab keeps all stock (phones, tablets, wearables, etc.) and uses <code>namematching.xlsx</code> for English names.
             <br><strong>Other tabs:</strong> Unchanged — smartphones only, original <code>Model Capacity-Grade</code> names. Name matching is not applied.
-            <br><strong>🔤 Naming file:</strong> Auto-loads <code>namematching.xlsx</code> from the same folder when hosted. Fallback: pick the file manually. Used only for IEFSET rows.
+            <br><strong>🔤 Naming file:</strong> Auto-loads <code>namematching.xlsx</code> from the same folder when hosted. Processing waits for that file. Fallback: pick it manually.
             <br><strong>🇨🇦 CA / 🔧 Floor USD / 🧹 Filtered button:</strong> Unchanged. The orange button still only removes US/HK iPhone 14 Pro Max E Sim qty and all US/HK iPhone 12 Pro Max rows.
         </div>
 
         <div class="file-section">
             <div class="section-title">📂 File Selection</div>
-
             <div class="file-group">
                 <label class="file-label">1. Main Inventory File:</label>
                 <div class="file-input-group">
                     <input type="file" id="inventoryFile" class="file-input" accept=".csv,.xlsx,.xls">
-                    <button class="file-button" onclick="document.getElementById('inventoryFile').click()">
-                        📄 Select Inventory File
-                    </button>
+                    <button class="file-button" onclick="document.getElementById('inventoryFile').click()">📄 Select Inventory File</button>
                     <span id="inventoryStatus" class="file-status">No file selected</span>
                 </div>
             </div>
-
             <div class="file-group">
                 <label class="file-label">2. Floor USD File (Optional):</label>
                 <div class="file-input-group">
                     <input type="file" id="usdFile" class="file-input" accept=".csv,.xlsx,.xls">
-                    <button id="usdButton" class="file-button usd" onclick="document.getElementById('usdFile').click()">
-                        💰 Select Floor USD File
-                    </button>
-                    <button id="skipButton" class="skip-button" onclick="skipUsdFile()">
-                        ⏭️ Skip (Use Inventory Prices)
-                    </button>
+                    <button id="usdButton" class="file-button usd" onclick="document.getElementById('usdFile').click()">💰 Select Floor USD File</button>
+                    <button id="skipButton" class="skip-button" onclick="skipUsdFile()">⏭️ Skip (Use Inventory Prices)</button>
                     <span id="usdStatus" class="file-status">Waiting for selection...</span>
                 </div>
             </div>
-
             <div class="file-group">
-                <label class="file-label">3. Name Matching File (SKU → English name):</label>
+                <label class="file-label">3. Name Matching File (SKU → English name, IEFSET only):</label>
                 <div class="file-input-group">
                     <input type="file" id="nameMapFile" class="file-input" accept=".csv,.xlsx,.xls">
-                    <button class="file-button map" onclick="document.getElementById('nameMapFile').click()">
-                        🔤 Select namematching.xlsx
-                    </button>
+                    <button class="file-button map" onclick="document.getElementById('nameMapFile').click()">🔤 Select namematching.xlsx</button>
                     <span id="nameMapStatus" class="file-status">Checking for namematching.xlsx…</span>
                 </div>
             </div>
@@ -178,38 +106,23 @@
 
         <div class="controls">
             <div class="checkbox-group">
-                <label>
-                    <input type="checkbox" id="autoProcess" checked>
-                    🚀 Auto-process when files are selected
-                </label>
+                <label><input type="checkbox" id="autoProcess" checked> 🚀 Auto-process when files are selected</label>
             </div>
-
             <div class="button-group">
-                <button id="processButton" class="process-button" onclick="startProcessing()" disabled>
-                    🚀 START PROCESSING
-                </button>
+                <button id="processButton" class="process-button" onclick="startProcessing()" disabled>🚀 START PROCESSING</button>
                 <div>
                     <span class="alchemy-text">I LOVE ALCHEMY</span>
                     <button class="exit-button" onclick="window.close()">❌ Exit</button>
                 </div>
             </div>
-
             <div class="filtered-output-section">
                 <div class="filtered-note">Separate button: output the filtered XLSX only</div>
-                <button id="filteredButton" class="filtered-button-main" onclick="startFilteredProcessing()" disabled>
-                    🧹 OUTPUT FILTERED XLSX
-                </button>
+                <button id="filteredButton" class="filtered-button-main" onclick="startFilteredProcessing()" disabled>🧹 OUTPUT FILTERED XLSX</button>
             </div>
         </div>
 
-        <div id="status" class="status">
-            🟢 Application ready! Please select your inventory file to begin.
-        </div>
-
-        <div id="progress" class="progress hidden">
-            <div id="progressBar" class="progress-bar"></div>
-        </div>
-
+        <div id="status" class="status">🟢 Application ready! Please select your inventory file to begin.</div>
+        <div id="progress" class="progress hidden"><div id="progressBar" class="progress-bar"></div></div>
         <div id="downloadLinks" class="download-links hidden"></div>
     </div>
 
@@ -223,6 +136,8 @@
         let MAPPING_ACTIVE = false;
         let NAME_MAP_SOURCE = '';
         let PENDING_NAME_MAP_ROWS = null;
+        let NAME_MAP_CHECK_FINISHED = false;
+        let NAME_MAP_LOAD_PROMISE = null;
 
         const locationMapping = {
             'AU_B2B': 'AU', 'AU_IE_B2B': 'AU', 'IE_IE_MVA_B2B': 'IE', 'IE_IE_VAT_B2B': 'IE',
@@ -235,9 +150,7 @@
             'HK_HTR_B2B_BOXED': 'HK', 'UK_ENV_VAT_B2B': 'UK', 'IE_IE_MVA_B2B_BOXED': 'IE',
             'US_B2B_2_Pricelock_Boxed': 'US', 'US_B2B_Pricelock_Boxed': 'US', 'US_MI_B2B_Boxed': 'US',
             'HK_TOTEM_B2B_BOXED': 'HK', 'UK_MRC_MVA_B2B_Boxed': 'UK', 'DUB_HAWK_B2B_BOXED': 'DUB',
-            'CA_B2B': 'CA',
-            'CA_B2B_Boxed': 'CA',
-            'CA_B2B_Boxwd': 'CA',
+            'CA_B2B': 'CA', 'CA_B2B_Boxed': 'CA', 'CA_B2B_Boxwd': 'CA',
             'HK_IE_FSET_B2B': 'HK_FSET',
             'HK_IE_FSET_B2B_BOXED': 'HK_FSET',
             'HK_IE_FSET_RMA': 'HK_FSET',
@@ -247,10 +160,7 @@
             'HK_FSET_B2B_VZW': 'HK_FSET'
         };
 
-        const exchangeRates = {
-            'USD': 1, 'AUD': 0.67, 'JPY': 0.007, 'EUR': 1.11, 'GBP': 1.31, 'AED': 0.27, 'CAD': 0.74
-        };
-
+        const exchangeRates = { 'USD': 1, 'AUD': 0.67, 'JPY': 0.007, 'EUR': 1.11, 'GBP': 1.31, 'AED': 0.27, 'CAD': 0.74 };
         const VALID_GRADES = ['A', 'B', 'C', 'Z', 'W', 'AS', 'CP', 'WP', 'NB'];
         const IEFSET_EXTRA_GRADES = ['D', 'DX', 'F'];
 
@@ -274,23 +184,19 @@
             return false;
         }
         function isUSSpecFromVariant(variantStr){
-            const s = (variantStr || '').toString().toLowerCase();
-            return s.includes('united states');
+            return (variantStr || '').toString().toLowerCase().includes('united states');
         }
         function getVariantTextFromRow(row){
             if(!row || typeof row !== 'object') return '';
             const keys = Object.keys(row);
             for(const k of keys){
                 if(k && k.toString().toLowerCase().includes('variant')){
-                    const v = row[k];
-                    if(v != null) return v;
+                    if(row[k] != null) return row[k];
                 }
             }
             for(const k of keys){
                 const v = row[k];
-                if(typeof v === 'string' && v.toLowerCase().includes('united states')){
-                    return v;
-                }
+                if(typeof v === 'string' && v.toLowerCase().includes('united states')) return v;
             }
             return '';
         }
@@ -349,6 +255,12 @@
             }
             return null;
         }
+        function getCanonicalFromModelText(text){
+            const raw = String(text || '').trim().replace(/\s+/g, ' ');
+            if(!raw) return null;
+            const noGrade = raw.replace(/-(W|WP|A|B|C|Z|DX|D|F|AS|CP|NB)\s*$/i, '').trim();
+            return SYNONYM_MAP[noGrade.toLowerCase()] || SYNONYM_MAP[raw.toLowerCase()] || null;
+        }
         function extractCapacity(text){
             if(!text) return '';
             const m = String(text).toUpperCase().match(/(\d+\s*(GB|TB))/);
@@ -360,53 +272,39 @@
             const C = (cap || '').toUpperCase();
             if(C && t.toUpperCase().includes(C)) t = t.replace(new RegExp(C, 'i'), '').trim();
             t = t.replace(/-(W|WP|A|B|C|Z|DX|D|F|AS|CP|NB)\b/i, '').trim();
-            t = t.replace(/\s{2,}/g, ' ');
-            return t;
+            return t.replace(/\s{2,}/g, ' ');
         }
-        function buildSkuNameMapFromRows(mapRows, datasetRows){
+        function buildSkuNameMapFromRows(mapRows){
             NAME_MAP = {};
             SYNONYM_MAP = {};
             if(!mapRows || !mapRows.length) return;
 
-            const neededBase = new Set();
-            if(datasetRows && datasetRows.length){
-                const datasetCols = Object.keys(datasetRows[0] || {});
-                const datasetSkuCol = pickCol(datasetCols, ['SKU', 'Sku', 'Short SKU', 'Item Code', 'SKU Code']);
-                if(datasetSkuCol){
-                    for(const r of datasetRows){
-                        const skuVal = r[datasetSkuCol];
-                        if(!skuVal) continue;
-                        const skuNoGrade = removeGradeFromSku(String(skuVal));
-                        if(skuNoGrade) neededBase.add(skuNoGrade.toUpperCase());
-                    }
-                }
-            }
-
             const keys = Object.keys(mapRows[0] || {});
-            if(keys.length < 3) throw new Error('Name matching file must have at least three columns (SKU, BI name, English name)');
-            const mapSkuCol = keys[0];
-            const mapSynCol = keys[1];
-            const mapNameCol = keys[2];
+            if(!keys.length) throw new Error('Name matching file has no header row');
+            const mapSkuCol = pickCol(keys, ['SKU', 'Sku', 'Item Code', 'SKU Code', 'Short SKU']) || keys[0];
+            const mapNameCol = pickCol(keys, ['English name', 'English Name', 'English', 'Canonical', 'Canonical Name', 'Name']) || keys[Math.min(2, keys.length - 1)];
+            const mapSynCol = pickCol(keys, ['BI name', 'BI Name', 'Synonym', 'Synonyms', 'Model', 'CN Name']) || (keys[1] && keys[1] !== mapNameCol ? keys[1] : null);
 
             for(const row of mapRows){
                 const skuField = row[mapSkuCol];
                 if(!skuField) continue;
-                const keyUpper = String(skuField).trim().toUpperCase();
+                const keyUpper = removeGradeFromSku(String(skuField).trim()).toUpperCase();
                 if(!keyUpper) continue;
-                if(neededBase.size && !neededBase.has(keyUpper)) continue;
                 const names = [];
                 const primary = row[mapNameCol];
                 if(primary != null){
                     const n = String(primary).trim();
                     if(n) names.push(n);
                 }
-                const synVal = row[mapSynCol];
-                if(synVal != null){
-                    const s = String(synVal).trim();
-                    if(s) s.split(/[|,]/).forEach(part => {
-                        const p = String(part).trim();
-                        if(p) names.push(p);
-                    });
+                if(mapSynCol){
+                    const synVal = row[mapSynCol];
+                    if(synVal != null){
+                        const s = String(synVal).trim();
+                        if(s) s.split(/[|,]/).forEach(part => {
+                            const p = String(part).trim();
+                            if(p) names.push(p);
+                        });
+                    }
                 }
                 if(!names.length) continue;
                 if(!NAME_MAP[keyUpper]) NAME_MAP[keyUpper] = { canonical: names[0], synonyms: new Set(names) };
@@ -421,7 +319,6 @@
                     if(key && !SYNONYM_MAP[key]) SYNONYM_MAP[key] = canonical;
                 }
             }
-
             MAPPING_ACTIVE = Object.keys(NAME_MAP).length > 0;
         }
         function buildOriginalModelGrade(row){
@@ -430,20 +327,23 @@
             const grade = (row.Grade || '').toString().trim();
             return `${model} ${cap}-${grade}`.replace(/\s+/g, ' ').trim();
         }
+        function withGradeSuffix(name, grade){
+            if(!name) return '';
+            const alreadyHasGrade = /-(W|WP|A|B|C|Z|DX|D|F|AS|CP|NB)\s*$/i.test(name);
+            if(grade && !alreadyHasGrade) return `${name}-${grade}`;
+            return name;
+        }
         function buildModelGrade(row){
             const sku = (row.SKU || row.Sku || '').toString().trim();
             let grade = (row.Grade || '').toString().trim();
             if(!grade && sku) grade = getGradeFromSku(sku);
 
-            // Name matching is IEFSET-only. Other tabs keep Model + Capacity-Grade.
-            if(isIefsetRow(row) && MAPPING_ACTIVE && sku){
+            if(isIefsetRow(row) && MAPPING_ACTIVE){
                 try{
-                    const canonical = getCanonicalFromSku(sku);
-                    if(canonical){
-                        const alreadyHasGrade = /-(W|WP|A|B|C|Z|DX|D|F|AS|CP|NB)\s*$/i.test(canonical);
-                        if(grade && !alreadyHasGrade) return `${canonical}-${grade}`;
-                        return canonical;
-                    }
+                    const canonical = getCanonicalFromSku(sku)
+                        || getCanonicalFromModelText(row.Model)
+                        || getCanonicalFromModelText(sku);
+                    if(canonical) return withGradeSuffix(canonical, grade);
                 }catch(e){}
             }
 
@@ -452,7 +352,7 @@
             const model = (row.Model || '').toString().trim();
             let cap = (row.Capacity || '').toString().trim();
             if(!cap) cap = extractCapacity(model);
-            const base = modelBase(model, cap) || model || sku || 'Unknown Model';
+            const base = modelBase(model, cap) || model || 'Unknown Model';
             let label = base;
             if(cap && !label.toUpperCase().includes(cap.toUpperCase())) label += ' ' + cap;
             if(grade && !new RegExp('-' + grade + '$', 'i').test(label)) label += '-' + grade;
@@ -464,10 +364,11 @@
             el.textContent = message;
             el.className = selected ? 'file-status selected' : 'file-status';
         }
-        function applyLoadedNameMap(mapRows, sourceName, datasetRows){
-            buildSkuNameMapFromRows(mapRows, datasetRows || null);
+        function applyLoadedNameMap(mapRows, sourceName){
+            buildSkuNameMapFromRows(mapRows);
             NAME_MAP_SOURCE = sourceName || 'namematching.xlsx';
             PENDING_NAME_MAP_ROWS = mapRows;
+            NAME_MAP_CHECK_FINISHED = true;
             const count = Object.keys(NAME_MAP).length;
             setNameMapStatus(`✅ ${NAME_MAP_SOURCE} (${count.toLocaleString()} SKU rows)`, true);
             return count;
@@ -479,14 +380,6 @@
                 document.getElementById('inventoryStatus').textContent = `✅ ${inventoryFile.name}`;
                 document.getElementById('inventoryStatus').className = 'file-status selected';
                 updateStatus(`📄 Selected inventory file: ${inventoryFile.name}`);
-                if (PENDING_NAME_MAP_ROWS) {
-                    try {
-                        // Rebuild against this inventory so unused SKUs can be dropped.
-                        readFile(inventoryFile).then(rows => {
-                            applyLoadedNameMap(PENDING_NAME_MAP_ROWS, NAME_MAP_SOURCE, rows);
-                        }).catch(() => {});
-                    } catch (err) {}
-                }
                 if (document.getElementById('autoProcess').checked) {
                     updateStatus('ℹ️ Now select floor USD file or click "Skip" to continue.');
                 }
@@ -511,12 +404,11 @@
             const file = e.target.files[0];
             try {
                 const rows = await readFile(file);
-                let datasetRows = null;
-                if (inventoryFile) {
-                    try { datasetRows = await readFile(inventoryFile); } catch (err) {}
-                }
-                applyLoadedNameMap(rows, file.name, datasetRows);
+                applyLoadedNameMap(rows, file.name);
                 updateStatus(`🔤 Loaded name map: ${file.name} (${Object.keys(NAME_MAP).length.toLocaleString()} SKU rows)`);
+                if (document.getElementById('autoProcess').checked && inventoryFile && usdDecisionMade) {
+                    checkAutoProcess();
+                }
             } catch (err) {
                 console.error(err);
                 setNameMapStatus('❌ Failed to read name map: ' + (err.message || err), false);
@@ -551,8 +443,10 @@
 
         function checkAutoProcess() {
             if (document.getElementById('autoProcess').checked && inventoryFile && usdDecisionMade) {
-                updateStatus('🤖 Both file decisions made - auto-starting processing...');
-                setTimeout(startProcessing, 1000);
+                updateStatus('🤖 Files ready — waiting for namematching before processing...');
+                Promise.resolve(NAME_MAP_LOAD_PROMISE).finally(() => {
+                    setTimeout(startProcessing, 300);
+                });
             }
         }
 
@@ -561,14 +455,12 @@
             status.textContent = message;
             status.className = `status ${type}`;
         }
-
         function clearManualDownloadLinks() {
             const box = document.getElementById('downloadLinks');
             if (!box) return;
             box.innerHTML = '';
             box.classList.add('hidden');
         }
-
         function showManualDownloadLinks(files) {
             const box = document.getElementById('downloadLinks');
             if (!box) return;
@@ -584,7 +476,6 @@
             });
             box.classList.remove('hidden');
         }
-
         function showProgress() {
             document.getElementById('progress').classList.remove('hidden');
             document.getElementById('progressBar').style.width = '100%';
@@ -597,6 +488,7 @@
         async function tryAutoLoadNameMap(){
             const params = new URLSearchParams(window.location.search);
             if(params.has('disableNameMapAutoload')){
+                NAME_MAP_CHECK_FINISHED = true;
                 setNameMapStatus('Auto-load disabled; choose the name map manually', false);
                 return;
             }
@@ -618,39 +510,56 @@
                     });
                     const mapRows = await readFile(file);
                     if(!mapRows.length) throw new Error('The name matching workbook has no data rows');
-                    applyLoadedNameMap(mapRows, sourceName, null);
+                    applyLoadedNameMap(mapRows, sourceName);
                     updateStatus(`🔤 Auto-loaded name map: ${sourceName} (${Object.keys(NAME_MAP).length.toLocaleString()} SKU rows)`);
                     return;
                 }catch(error){
                     console.warn(`Could not auto-load ${path}`, error);
                 }
             }
+            NAME_MAP_CHECK_FINISHED = true;
             setNameMapStatus('Not found automatically; choose namematching.xlsx manually (same folder works when this page is hosted)', false);
         }
 
-        async function startProcessing() {
+        async function ensureNameMapReady(){
+            if (MAPPING_ACTIVE) return;
+            if (PENDING_NAME_MAP_ROWS) {
+                applyLoadedNameMap(PENDING_NAME_MAP_ROWS, NAME_MAP_SOURCE);
+                return;
+            }
+            if (NAME_MAP_LOAD_PROMISE) {
+                try { await NAME_MAP_LOAD_PROMISE; } catch (e) {}
+            }
+            if (!MAPPING_ACTIVE && !NAME_MAP_CHECK_FINISHED) {
+                try { await tryAutoLoadNameMap(); } catch (e) {}
+            }
+        }
+
+        async function runPipeline(filteredOnly) {
             if (!inventoryFile) {
                 alert('Please select an inventory file first!');
                 return;
             }
-            const button = document.getElementById('processButton');
+
+            const button = document.getElementById(filteredOnly ? 'filteredButton' : 'processButton');
+            const originalLabel = filteredOnly ? '🧹 OUTPUT FILTERED XLSX' : '🚀 START PROCESSING';
             button.disabled = true;
-            button.textContent = '⏳ Processing...';
+            button.textContent = filteredOnly ? '⏳ Filtering...' : '⏳ Processing...';
             button.style.background = '#bdc3c7';
-            updateStatus('🚀 Processing files...', 'processing');
+            updateStatus(filteredOnly ? '🧹 Waiting for namematching, then filtering...' : '🚀 Waiting for namematching, then processing...', 'processing');
             showProgress();
             clearManualDownloadLinks();
 
             try {
+                await ensureNameMapReady();
                 const inventoryData = await readFile(inventoryFile);
-                if (PENDING_NAME_MAP_ROWS) {
-                    applyLoadedNameMap(PENDING_NAME_MAP_ROWS, NAME_MAP_SOURCE, inventoryData);
+                if (PENDING_NAME_MAP_ROWS && !MAPPING_ACTIVE) {
+                    applyLoadedNameMap(PENDING_NAME_MAP_ROWS, NAME_MAP_SOURCE);
                 }
 
                 const caRows = inventoryData.filter(row =>
                     row.location_code === 'CA_B2B' || row.location_code === 'CA_B2B_Boxed' || row.location_code === 'CA_B2B_Boxwd'
                 );
-                console.log(`DEBUG: Found ${caRows.length} rows with CA location code`);
 
                 let usdData = null;
                 if (usdFile) usdData = await readFile(usdFile);
@@ -660,107 +569,50 @@
                 const processedUsdData = usdData ? processFloorUsdData(usdData) : [];
                 const finalData = calculateUsdPrice(processedData, processedUsdData);
                 const finalCaData = finalData.filter(row => row.Country === 'CA');
+                const fsetData = finalData.filter(row => row.Country === 'HK_FSET');
 
                 const debugInfo = `
 📊 DEBUG INFO:
 - Raw rows: ${inventoryData.length}
 - After process: ${processedData.length}
 - Final grouped rows: ${finalData.length}
+- HK_FSET grouped rows: ${fsetData.length}
 - Raw CA rows: ${caRows.length}
 - Processed CA rows: ${processedCaData.length}
 - Final CA rows: ${finalCaData.length}
-- Name map (IEFSET only): ${MAPPING_ACTIVE ? NAME_MAP_SOURCE + ' (' + Object.keys(NAME_MAP).length + ' SKUs)' : 'not loaded — IEFSET will use Model + Capacity'}
+- Name map (IEFSET only): ${MAPPING_ACTIVE ? NAME_MAP_SOURCE + ' (' + Object.keys(NAME_MAP).length + ' SKUs)' : 'NOT LOADED — IEFSET used Model + Capacity'}
 `;
-                updateStatus(debugInfo, 'processing');
 
                 const timestamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '').replace(/(\d{4})(\d{4})/, '$1_$2_');
-                const filename = `Phone_List_${timestamp}.xlsx`;
+                const filename = filteredOnly ? `Phone_List_${timestamp}_filtered.xlsx` : `Phone_List_${timestamp}.xlsx`;
 
                 const vzwInventory = processedData.filter(r => r.location_code === 'HK_HTR_B2B_VZW');
                 const vzwFinalData = calculateUsdPrice(vzwInventory, processedUsdData);
+                const outData = filteredOnly ? createSecondFilteredOutputData(finalData) : finalData;
+                const outVzw = filteredOnly ? createSecondFilteredOutputData(vzwFinalData) : vzwFinalData;
 
-                const originalBlob = await createExcelOutputWithBorders(finalData, filename, vzwFinalData);
-                showManualDownloadLinks([{ filename, blob: originalBlob }]);
-
-                updateStatus(`🎉 SUCCESS! Original output saved: ${filename}`, 'success');
-                alert(`Processing completed successfully!\n\nOutput saved to: ${filename}\n\n✅ Other tabs = smartphones only (original names).\n✅ HK_FSET tab = all stock + namematching.\n\n${debugInfo}`);
+                const blob = await createExcelOutputWithBorders(outData, filename, outVzw);
+                showManualDownloadLinks([{ filename, blob }]);
+                updateStatus(`🎉 SUCCESS! Output saved: ${filename}`, 'success');
+                if (filteredOnly) {
+                    alert(`Filtered output completed!\n\nOutput saved to: ${filename}\n\nThis filtered XLSX removes:\n- US/HK iPhone 14 Pro Max E Sim qty\n- US/HK all iPhone 12 Pro Max rows\n\n${debugInfo}`);
+                } else {
+                    alert(`Processing completed successfully!\n\nOutput saved to: ${filename}\n\n✅ Other tabs = smartphones only (original names).\n✅ HK_FSET tab = all stock + namematching.\n\n${debugInfo}`);
+                }
             } catch (error) {
                 console.error('Processing error:', error);
                 updateStatus(`❌ Error: ${error.message}`, 'error');
                 alert(`An error occurred: ${error.message}`);
             } finally {
-                button.textContent = '🚀 START PROCESSING';
+                button.textContent = originalLabel;
                 updateProcessButton();
                 hideProgress();
                 updateStatus('✅ Ready for next processing.');
             }
         }
 
-        async function startFilteredProcessing() {
-            if (!inventoryFile) {
-                alert('Please select an inventory file first!');
-                return;
-            }
-            const button = document.getElementById('filteredButton');
-            button.disabled = true;
-            button.textContent = '⏳ Filtering...';
-            button.style.background = '#bdc3c7';
-            updateStatus('🧹 Processing filtered output only...', 'processing');
-            showProgress();
-            clearManualDownloadLinks();
-
-            try {
-                const inventoryData = await readFile(inventoryFile);
-                if (PENDING_NAME_MAP_ROWS) {
-                    applyLoadedNameMap(PENDING_NAME_MAP_ROWS, NAME_MAP_SOURCE, inventoryData);
-                }
-
-                const caRows = inventoryData.filter(row =>
-                    row.location_code === 'CA_B2B' || row.location_code === 'CA_B2B_Boxed' || row.location_code === 'CA_B2B_Boxwd'
-                );
-
-                let usdData = null;
-                if (usdFile) usdData = await readFile(usdFile);
-
-                const processedData = processInventoryData(inventoryData);
-                const processedCaData = processedData.filter(row => row.Country === 'CA');
-                const processedUsdData = usdData ? processFloorUsdData(usdData) : [];
-                const finalData = calculateUsdPrice(processedData, processedUsdData);
-                const finalCaData = finalData.filter(row => row.Country === 'CA');
-
-                const debugInfo = `
-📊 DEBUG INFO:
-- Raw CA rows: ${caRows.length}
-- Processed CA rows: ${processedCaData.length}
-- Final CA rows: ${finalCaData.length}
-- Name map (IEFSET only): ${MAPPING_ACTIVE ? NAME_MAP_SOURCE + ' (' + Object.keys(NAME_MAP).length + ' SKUs)' : 'not loaded'}
-`;
-
-                const timestamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '').replace(/(\d{4})(\d{4})/, '$1_$2_');
-                const filteredFilename = `Phone_List_${timestamp}_filtered.xlsx`;
-
-                const vzwInventory = processedData.filter(r => r.location_code === 'HK_HTR_B2B_VZW');
-                const vzwFinalData = calculateUsdPrice(vzwInventory, processedUsdData);
-
-                const filteredFinalData = createSecondFilteredOutputData(finalData);
-                const filteredVzwFinalData = createSecondFilteredOutputData(vzwFinalData);
-
-                const filteredBlob = await createExcelOutputWithBorders(filteredFinalData, filteredFilename, filteredVzwFinalData);
-                showManualDownloadLinks([{ filename: filteredFilename, blob: filteredBlob }]);
-
-                updateStatus(`🎉 SUCCESS! Filtered output saved: ${filteredFilename}`, 'success');
-                alert(`Filtered output completed!\n\nOutput saved to: ${filteredFilename}\n\nThis filtered XLSX removes:\n- US/HK iPhone 14 Pro Max E Sim qty\n- US/HK all iPhone 12 Pro Max rows\n\n${debugInfo}`);
-            } catch (error) {
-                console.error('Filtered processing error:', error);
-                updateStatus(`❌ Error: ${error.message}`, 'error');
-                alert(`An error occurred: ${error.message}`);
-            } finally {
-                button.textContent = '🧹 OUTPUT FILTERED XLSX';
-                updateProcessButton();
-                hideProgress();
-                updateStatus('✅ Ready for next processing.');
-            }
-        }
+        async function startProcessing() { return runPipeline(false); }
+        async function startFilteredProcessing() { return runPipeline(true); }
 
         async function readFile(file) {
             const fileName = (file && file.name ? file.name : '').toLowerCase();
@@ -884,39 +736,19 @@
                 throw new Error(`Missing required columns: ${missingColumns.join(', ')}`);
             }
 
-            let caDataCount = data.filter(row => row.location_code === 'CA_B2B' || row.location_code === 'CA_B2B_Boxed' || row.location_code === 'CA_B2B_Boxwd').length;
-            console.log(`DEBUG: Starting with ${caDataCount} CA rows`);
-
             let mappedNameCount = 0;
             let unmappedNameCount = 0;
 
             let filtered = data.filter(row => {
-                const isCA = (row.location_code === 'CA_B2B' || row.location_code === 'CA_B2B_Boxed' || row.location_code === 'CA_B2B_Boxwd');
                 const isFset = isIefsetRow(row);
-
                 row.Country = locationMapping[row.location_code];
-                if (!row.Country) {
-                    if (isCA) console.log('DEBUG: CA row filtered out - no country mapping for:', row.location_code);
-                    return false;
-                }
-
-                // Other tabs stay smartphone-only. IEFSET keeps every category.
-                if (!isFset && hasCategory && row.Category !== 'Smartphones') {
-                    if (isCA) console.log('DEBUG: CA row filtered out by category:', row.Category);
-                    return false;
-                }
-
+                if (!row.Country) return false;
+                if (!isFset && hasCategory && row.Category !== 'Smartphones') return false;
                 const grade = String(row.Grade || '').trim();
                 const allowedGrades = isFset ? VALID_GRADES.concat(IEFSET_EXTRA_GRADES) : VALID_GRADES;
-                if (row.location_code !== 'HK_HTR_B2B_VZW' && !allowedGrades.includes(grade)) {
-                    if (isCA) console.log('DEBUG: CA row filtered out by grade:', row.Grade);
-                    return false;
-                }
+                if (row.location_code !== 'HK_HTR_B2B_VZW' && !allowedGrades.includes(grade)) return false;
                 return true;
             });
-
-            caDataCount = filtered.filter(row => row.Country === 'CA').length;
-            console.log(`DEBUG: After filtering, ${caDataCount} CA rows remain`);
 
             filtered.forEach(row => {
                 row.Model = (row.Model || '').toString().trim();
@@ -925,7 +757,7 @@
                 row.Category = (row.Category || '').toString().trim();
                 const before = buildOriginalModelGrade(row);
                 row['Model grade'] = buildModelGrade(row);
-                if (isIefsetRow(row) && MAPPING_ACTIVE && getCanonicalFromSku(row.SKU)) mappedNameCount++;
+                if (isIefsetRow(row) && MAPPING_ACTIVE && (getCanonicalFromSku(row.SKU) || getCanonicalFromModelText(row.Model))) mappedNameCount++;
                 else if (isIefsetRow(row)) unmappedNameCount++;
                 if (!row['Model grade']) row['Model grade'] = before || 'Unknown Model';
 
@@ -938,15 +770,13 @@
                 row.USD_floor_price = row.floor_price * (exchangeRates[row.currency] || 1);
             });
 
-            console.log(`DEBUG: IEFSET named via map: ${mappedNameCount}; IEFSET fallback Model+Capacity: ${unmappedNameCount}`);
+            console.log(`DEBUG: IEFSET named via map: ${mappedNameCount}; IEFSET fallback: ${unmappedNameCount}; map size: ${Object.keys(NAME_MAP).length}`);
             return filtered;
         }
 
         function processFloorUsdData(data) {
             if (!data || data.length === 0) return [];
             const sampleRow = data[0];
-            console.log('DEBUG: Floor USD file columns found:', Object.keys(sampleRow));
-
             const modelGradeCol = sampleRow['Model Grade'] !== undefined ? 'Model Grade' :
                                  sampleRow['model grade'] !== undefined ? 'model grade' :
                                  sampleRow['ModelGrade'] !== undefined ? 'ModelGrade' : null;
@@ -955,26 +785,13 @@
             const priceCol = sampleRow['>500'] !== undefined ? '>500' :
                             sampleRow['500'] !== undefined ? '500' :
                             sampleRow['price'] !== undefined ? 'price' : null;
-
-            if (!modelGradeCol || !gradeCol || !priceCol) {
-                console.warn('WARNING: Required columns not found in Floor USD file');
-                console.warn('Expected: Model Grade, Grade, >500');
-                console.warn('Found:', Object.keys(sampleRow));
-                return [];
-            }
-
+            if (!modelGradeCol || !gradeCol || !priceCol) return [];
             return data.map(row => {
                 let modelGrade = (row[modelGradeCol] || '').toString().trim();
                 const grade = (row[gradeCol] || '').toString().trim();
                 const usdPrice = parseFloat(row[priceCol]) || 0;
-                if (modelGrade && grade && !modelGrade.includes('-' + grade)) {
-                    modelGrade = modelGrade + '-' + grade;
-                }
-                return {
-                    'model grade': modelGrade,
-                    'grade': grade,
-                    'usd_price': usdPrice
-                };
+                if (modelGrade && grade && !modelGrade.includes('-' + grade)) modelGrade = modelGrade + '-' + grade;
+                return { 'model grade': modelGrade, 'grade': grade, 'usd_price': usdPrice };
             });
         }
 
@@ -988,10 +805,7 @@
                         'Grade': row.Grade,
                         'Country': row.Country,
                         'Manufacturer': row.Manufacturer,
-                        'Qty': 0,
-                        'PSimQty': 0,
-                        'ESimQty': 0,
-                        'USD_floor_prices': []
+                        'Qty': 0, 'PSimQty': 0, 'ESimQty': 0, 'USD_floor_prices': []
                     };
                 }
                 grouped[key].Qty += row.qty_available;
@@ -999,26 +813,18 @@
                 grouped[key].ESimQty += (row.ESimQty || 0);
                 grouped[key].USD_floor_prices.push(row.USD_floor_price);
             });
-
             const usdLookup = {};
-            usdData.forEach(row => {
-                const key = `${row['model grade']}|${row.grade}`;
-                usdLookup[key] = row.usd_price;
-            });
-
-            const result = Object.values(grouped).map(group => {
+            usdData.forEach(row => { usdLookup[`${row['model grade']}|${row.grade}`] = row.usd_price; });
+            return Object.values(grouped).map(group => {
                 const lookupKey = `${group['Model grade']}|${group.Grade}`;
-                if (usdLookup[lookupKey]) {
-                    group.USD = usdLookup[lookupKey];
-                } else {
+                if (usdLookup[lookupKey]) group.USD = usdLookup[lookupKey];
+                else {
                     const avg = group.USD_floor_prices.reduce((a, b) => a + b, 0) / group.USD_floor_prices.length;
                     group.USD = avg || 0;
                 }
                 delete group.USD_floor_prices;
                 return group;
-            });
-
-            return result.filter(row => row.Qty > 0);
+            }).filter(row => row.Qty > 0);
         }
 
         function createSecondFilteredOutputData(data) {
@@ -1027,26 +833,16 @@
                 const isUsOrHk = region === 'US' || region === 'HK' || region === 'HK_VZW' || region === 'HK_FSET';
                 if (!isUsOrHk) return true;
                 const modelGrade = (row['Model grade'] || '').toString();
-                if (isIphone12ProMax(modelGrade)) return false;
-                if (isIphone14ProMax(modelGrade)) {
-                    const pSimQty = parseNumber(row.PSimQty);
+                if (/\biPhone\s*12\s*Pro\s*Max\b/i.test(modelGrade)) return false;
+                if (/\biPhone\s*14\s*Pro\s*Max\b/i.test(modelGrade)) {
+                    const pSimQty = parseFloat(row.PSimQty);
+                    const p = Number.isFinite(pSimQty) ? pSimQty : 0;
                     row.ESimQty = 0;
-                    row.Qty = pSimQty;
-                    return pSimQty > 0;
+                    row.Qty = p;
+                    return p > 0;
                 }
                 return true;
             });
-        }
-
-        function isIphone14ProMax(modelGrade) {
-            return /\biPhone\s*14\s*Pro\s*Max\b/i.test(modelGrade || '');
-        }
-        function isIphone12ProMax(modelGrade) {
-            return /\biPhone\s*12\s*Pro\s*Max\b/i.test(modelGrade || '');
-        }
-        function parseNumber(value) {
-            const n = parseFloat(value);
-            return Number.isFinite(n) ? n : 0;
         }
 
         async function createExcelOutputWithBorders(data, filename, vzwData = []) {
@@ -1059,146 +855,52 @@
                 right: { style: 'thin', color: { argb: 'FF000000' } }
             };
 
+            function writeSide(ws, startColLetters, rows) {
+                const headers = ['Model grade', 'Grade', 'Qty', 'P Sim Qty', 'E Sim Qty', 'USD'];
+                headers.forEach((h, i) => {
+                    const cell = ws.getCell(1, startColLetters + i);
+                    cell.value = h;
+                    cell.font = { bold: true };
+                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE6E6E6' } };
+                    cell.border = borderStyle;
+                });
+                rows.forEach((row, index) => {
+                    const r = index + 2;
+                    ws.getCell(r, startColLetters).value = row['Model grade'];
+                    ws.getCell(r, startColLetters + 1).value = row.Grade;
+                    ws.getCell(r, startColLetters + 2).value = parseInt(row.Qty);
+                    ws.getCell(r, startColLetters + 3).value = parseInt(row.PSimQty || 0);
+                    ws.getCell(r, startColLetters + 4).value = parseInt(row.ESimQty || 0);
+                    ws.getCell(r, startColLetters + 5).value = parseFloat(Number(row.USD || 0).toFixed(2));
+                    ws.getCell(r, startColLetters + 5).numFmt = '"$"#,##0.00';
+                    for (let c = startColLetters; c <= startColLetters + 5; c++) ws.getCell(r, c).border = borderStyle;
+                });
+            }
+
             countries.forEach(country => {
                 const countryData = data.filter(row => row.Country === country);
                 if (countryData.length === 0) return;
                 const worksheet = workbook.addWorksheet(country);
+                worksheet.columns = [
+                    { width: 40 }, { width: 10 }, { width: 10 }, { width: 12 }, { width: 12 }, { width: 15 },
+                    { width: 3 },
+                    { width: 40 }, { width: 10 }, { width: 10 }, { width: 12 }, { width: 12 }, { width: 15 }
+                ];
                 const appleData = countryData.filter(row => row.Manufacturer === 'Apple');
                 const nonAppleData = countryData.filter(row => row.Manufacturer !== 'Apple');
-
-                worksheet.columns = [
-                    { width: 40 },
-                    { width: 10 },
-                    { width: 10 },
-                    { width: 12 },
-                    { width: 12 },
-                    { width: 15 },
-                    { width: 3 },
-                    { width: 40 },
-                    { width: 10 },
-                    { width: 10 },
-                    { width: 12 },
-                    { width: 12 },
-                    { width: 15 }
-                ];
-
-                if (appleData.length > 0) {
-                    worksheet.getCell('A1').value = 'Model grade';
-                    worksheet.getCell('B1').value = 'Grade';
-                    worksheet.getCell('C1').value = 'Qty';
-                    worksheet.getCell('D1').value = 'P Sim Qty';
-                    worksheet.getCell('E1').value = 'E Sim Qty';
-                    worksheet.getCell('F1').value = 'USD';
-                    ['A1', 'B1', 'C1', 'D1', 'E1', 'F1'].forEach(cell => {
-                        worksheet.getCell(cell).font = { bold: true };
-                        worksheet.getCell(cell).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE6E6E6' } };
-                        worksheet.getCell(cell).border = borderStyle;
-                    });
-                    appleData.forEach((row, index) => {
-                        const rowNum = index + 2;
-                        worksheet.getCell(`A${rowNum}`).value = row['Model grade'];
-                        worksheet.getCell(`B${rowNum}`).value = row.Grade;
-                        worksheet.getCell(`C${rowNum}`).value = parseInt(row.Qty);
-                        worksheet.getCell(`D${rowNum}`).value = parseInt(row.PSimQty || 0);
-                        worksheet.getCell(`E${rowNum}`).value = parseInt(row.ESimQty || 0);
-                        worksheet.getCell(`F${rowNum}`).value = parseFloat(row.USD.toFixed(2));
-                        [`A${rowNum}`, `B${rowNum}`, `C${rowNum}`, `D${rowNum}`, `E${rowNum}`, `F${rowNum}`].forEach(cell => {
-                            worksheet.getCell(cell).border = borderStyle;
-                        });
-                        worksheet.getCell(`F${rowNum}`).numFmt = '"$"#,##0.00';
-                    });
-                }
-
-                if (nonAppleData.length > 0) {
-                    worksheet.getCell('H1').value = 'Model grade';
-                    worksheet.getCell('I1').value = 'Grade';
-                    worksheet.getCell('J1').value = 'Qty';
-                    worksheet.getCell('K1').value = 'P Sim Qty';
-                    worksheet.getCell('L1').value = 'E Sim Qty';
-                    worksheet.getCell('M1').value = 'USD';
-                    ['H1', 'I1', 'J1', 'K1', 'L1', 'M1'].forEach(cell => {
-                        worksheet.getCell(cell).font = { bold: true };
-                        worksheet.getCell(cell).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE6E6E6' } };
-                        worksheet.getCell(cell).border = borderStyle;
-                    });
-                    nonAppleData.forEach((row, index) => {
-                        const rowNum = index + 2;
-                        worksheet.getCell(`H${rowNum}`).value = row['Model grade'];
-                        worksheet.getCell(`I${rowNum}`).value = row.Grade;
-                        worksheet.getCell(`J${rowNum}`).value = parseInt(row.Qty);
-                        worksheet.getCell(`K${rowNum}`).value = parseInt(row.PSimQty || 0);
-                        worksheet.getCell(`L${rowNum}`).value = parseInt(row.ESimQty || 0);
-                        worksheet.getCell(`M${rowNum}`).value = parseFloat(row.USD.toFixed(2));
-                        [`H${rowNum}`, `I${rowNum}`, `J${rowNum}`, `K${rowNum}`, `L${rowNum}`, `M${rowNum}`].forEach(cell => {
-                            worksheet.getCell(cell).border = borderStyle;
-                        });
-                        worksheet.getCell(`M${rowNum}`).numFmt = '"$"#,##0.00';
-                    });
-                }
+                if (appleData.length) writeSide(worksheet, 1, appleData);
+                if (nonAppleData.length) writeSide(worksheet, 8, nonAppleData);
             });
 
             if (vzwData && vzwData.length > 0) {
                 const wsVzw = workbook.addWorksheet('HK_VZW');
-                const appleV = vzwData.filter(r => r.Manufacturer === 'Apple');
-                const nonAppleV = vzwData.filter(r => r.Manufacturer !== 'Apple');
                 wsVzw.columns = [
                     { width: 40 }, { width: 10 }, { width: 12 }, { width: 12 }, { width: 12 }, { width: 15 },
                     { width: 3 },
                     { width: 40 }, { width: 10 }, { width: 12 }, { width: 12 }, { width: 12 }, { width: 15 }
                 ];
-                ['A1','B1','C1','D1','E1','F1'].forEach(c => {
-                    wsVzw.getCell(c).font = { bold: true };
-                    wsVzw.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE6E6E6' } };
-                    wsVzw.getCell(c).border = borderStyle;
-                });
-                wsVzw.getCell('A1').value = 'Model grade';
-                wsVzw.getCell('B1').value = 'Grade';
-                wsVzw.getCell('C1').value = 'Qty';
-                wsVzw.getCell('D1').value = 'P Sim Qty';
-                wsVzw.getCell('E1').value = 'E Sim Qty';
-                wsVzw.getCell('F1').value = 'USD';
-                ['H1','I1','J1','K1','L1','M1'].forEach(c => {
-                    wsVzw.getCell(c).font = { bold: true };
-                    wsVzw.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE6E6E6' } };
-                    wsVzw.getCell(c).border = borderStyle;
-                });
-                wsVzw.getCell('H1').value = 'Model grade';
-                wsVzw.getCell('I1').value = 'Grade';
-                wsVzw.getCell('J1').value = 'Qty';
-                wsVzw.getCell('K1').value = 'P Sim Qty';
-                wsVzw.getCell('L1').value = 'E Sim Qty';
-                wsVzw.getCell('M1').value = 'USD';
-
-                const maxRows = Math.max(appleV.length, nonAppleV.length);
-                for (let i = 0; i < maxRows; i++) {
-                    const rnum = i + 2;
-                    if (i < appleV.length) {
-                        const row = appleV[i];
-                        wsVzw.getCell(`A${rnum}`).value = row['Model grade'];
-                        wsVzw.getCell(`B${rnum}`).value = row['Grade'];
-                        wsVzw.getCell(`C${rnum}`).value = row['Qty'] === '' ? '' : parseInt(row['Qty'], 10) || 0;
-                        wsVzw.getCell(`D${rnum}`).value = row['PSimQty'] === '' ? '' : parseInt(row['PSimQty'], 10) || 0;
-                        wsVzw.getCell(`E${rnum}`).value = row['ESimQty'] === '' ? '' : parseInt(row['ESimQty'], 10) || 0;
-                        wsVzw.getCell(`F${rnum}`).value = row['USD'] === '' ? '' : Number(row['USD']) || 0;
-                        [`A${rnum}`,`B${rnum}`,`C${rnum}`,`D${rnum}`,`E${rnum}`,`F${rnum}`].forEach(c => wsVzw.getCell(c).border = borderStyle);
-                        wsVzw.getCell(`F${rnum}`).numFmt = '"$"#,##0.00';
-                    } else {
-                        [`A${rnum}`,`B${rnum}`,`C${rnum}`,`D${rnum}`,`E${rnum}`,`F${rnum}`].forEach(c => wsVzw.getCell(c).border = borderStyle);
-                    }
-                    if (i < nonAppleV.length) {
-                        const row = nonAppleV[i];
-                        wsVzw.getCell(`H${rnum}`).value = row['Model grade'];
-                        wsVzw.getCell(`I${rnum}`).value = row['Grade'];
-                        wsVzw.getCell(`J${rnum}`).value = row['Qty'] === '' ? '' : parseInt(row['Qty'], 10) || 0;
-                        wsVzw.getCell(`K${rnum}`).value = row['PSimQty'] === '' ? '' : parseInt(row['PSimQty'], 10) || 0;
-                        wsVzw.getCell(`L${rnum}`).value = row['ESimQty'] === '' ? '' : parseInt(row['ESimQty'], 10) || 0;
-                        wsVzw.getCell(`M${rnum}`).value = row['USD'] === '' ? '' : Number(row['USD']) || 0;
-                        [`H${rnum}`,`I${rnum}`,`J${rnum}`,`K${rnum}`,`L${rnum}`,`M${rnum}`].forEach(c => wsVzw.getCell(c).border = borderStyle);
-                        wsVzw.getCell(`M${rnum}`).numFmt = '"$"#,##0.00';
-                    } else {
-                        [`H${rnum}`,`I${rnum}`,`J${rnum}`,`K${rnum}`,`L${rnum}`,`M${rnum}`].forEach(c => wsVzw.getCell(c).border = borderStyle);
-                    }
-                }
+                writeSide(wsVzw, 1, vzwData.filter(r => r.Manufacturer === 'Apple'));
+                writeSide(wsVzw, 8, vzwData.filter(r => r.Manufacturer !== 'Apple'));
             }
 
             const buffer = await workbook.xlsx.writeBuffer();
@@ -1207,10 +909,9 @@
             return blob;
         }
 
+        NAME_MAP_LOAD_PROMISE = tryAutoLoadNameMap();
         if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', tryAutoLoadNameMap);
-        } else {
-            tryAutoLoadNameMap();
+            document.addEventListener('DOMContentLoaded', () => { NAME_MAP_LOAD_PROMISE = NAME_MAP_LOAD_PROMISE || tryAutoLoadNameMap(); });
         }
     </script>
 </body>
