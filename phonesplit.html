@@ -242,16 +242,22 @@
             if(/^(W|WP|A|B|C|Z|DX|D|F|AS|CP|NB)$/i.test(lastSeg)) return parts.slice(0, parts.length - 1).join('-');
             return s;
         }
+        function looksLikeSkuCode(text){
+            const s = String(text || '').trim();
+            if(!s) return false;
+            if(/\s/.test(s) && /[A-Za-z]{3,}/.test(s)) return false;
+            return /^[A-Z0-9]{2,}-[A-Z0-9]{2,}(-[A-Z0-9.]+)+$/i.test(s);
+        }
         function getCanonicalFromSku(sku){
             if(!sku) return null;
             const noGrade = removeGradeFromSku(String(sku)).toUpperCase();
             const direct = NAME_MAP[noGrade];
-            if(direct && direct.canonical) return direct.canonical;
+            if(direct && direct.canonical && !looksLikeSkuCode(direct.canonical)) return direct.canonical;
             const parts = noGrade.split('-');
-            for(let i = parts.length; i >= 1; i--){
+            for(let i = parts.length; i >= 3; i--){
                 const prefix = parts.slice(0, i).join('-');
                 const entry = NAME_MAP[prefix];
-                if(entry && entry.canonical) return entry.canonical;
+                if(entry && entry.canonical && !looksLikeSkuCode(entry.canonical)) return entry.canonical;
             }
             return null;
         }
@@ -281,34 +287,39 @@
 
             const keys = Object.keys(mapRows[0] || {});
             if(!keys.length) throw new Error('Name matching file has no header row');
-            const mapSkuCol = pickCol(keys, ['SKU', 'Sku', 'Item Code', 'SKU Code', 'Short SKU']) || keys[0];
-            const mapNameCol = pickCol(keys, ['English name', 'English Name', 'English', 'Canonical', 'Canonical Name', 'Name']) || keys[Math.min(2, keys.length - 1)];
-            const mapSynCol = pickCol(keys, ['BI name', 'BI Name', 'Synonym', 'Synonyms', 'Model', 'CN Name']) || (keys[1] && keys[1] !== mapNameCol ? keys[1] : null);
+            // Real namematching.xlsx headers: sku | en_name | en_name | pricing_sku
+            const mapSkuCol = pickCol(keys, ['SKU', 'Sku', 'sku', 'Item Code', 'SKU Code', 'Short SKU']) || keys[0];
+            const mapPriceSkuCol = pickCol(keys, ['pricing_sku', 'Pricing SKU', 'Pricing_Sku', 'Short SKU', 'short_sku']);
+            let mapNameCol = pickCol(keys, ['en_name', 'EN_NAME', 'English name', 'English Name', 'English', 'Canonical', 'Canonical Name']);
+            if(!mapNameCol){
+                mapNameCol = keys.find(k => k !== mapSkuCol && k !== mapPriceSkuCol && !/sku/i.test(k)) || keys[1] || keys[0];
+            }
+            const mapSynCol = pickCol(keys, ['BI name', 'BI Name', 'Synonym', 'Synonyms', 'Model', 'CN Name']);
+
+            function addKey(rawKey, canonical, extraNames){
+                const keyUpper = removeGradeFromSku(String(rawKey || '').trim()).toUpperCase();
+                if(!keyUpper || !canonical || looksLikeSkuCode(canonical)) return;
+                if(!NAME_MAP[keyUpper]) NAME_MAP[keyUpper] = { canonical, synonyms: new Set([canonical]) };
+                (extraNames || []).forEach(n => NAME_MAP[keyUpper].synonyms.add(n));
+            }
 
             for(const row of mapRows){
-                const skuField = row[mapSkuCol];
-                if(!skuField) continue;
-                const keyUpper = removeGradeFromSku(String(skuField).trim()).toUpperCase();
-                if(!keyUpper) continue;
                 const names = [];
                 const primary = row[mapNameCol];
                 if(primary != null){
                     const n = String(primary).trim();
-                    if(n) names.push(n);
+                    if(n && !looksLikeSkuCode(n)) names.push(n);
                 }
-                if(mapSynCol){
-                    const synVal = row[mapSynCol];
-                    if(synVal != null){
-                        const s = String(synVal).trim();
-                        if(s) s.split(/[|,]/).forEach(part => {
-                            const p = String(part).trim();
-                            if(p) names.push(p);
-                        });
-                    }
+                if(mapSynCol && row[mapSynCol] != null){
+                    String(row[mapSynCol]).split(/[|,]/).forEach(part => {
+                        const p = String(part || '').trim();
+                        if(p && !looksLikeSkuCode(p)) names.push(p);
+                    });
                 }
                 if(!names.length) continue;
-                if(!NAME_MAP[keyUpper]) NAME_MAP[keyUpper] = { canonical: names[0], synonyms: new Set(names) };
-                else names.forEach(n => NAME_MAP[keyUpper].synonyms.add(n));
+                const canonical = names[0];
+                addKey(row[mapSkuCol], canonical, names);
+                if(mapPriceSkuCol) addKey(row[mapPriceSkuCol], canonical, names);
             }
 
             for(const skuKey in NAME_MAP){
