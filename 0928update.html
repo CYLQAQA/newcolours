@@ -101,8 +101,8 @@
     </div>
     <details class="section" id="batchPasteDetails">
       <summary>Paste batch filter rows — Region / Model Grade / price</summary>
-      <div class="hint" style="margin-top:8px">You can paste directly from Excel. Required: Region and Model Grade. Optional: price/offer, Variant, Location/Warehouse. Price can include $ or commas; they will be cleaned automatically.</div>
-      <textarea id="batchPasteBox" placeholder="Region&#9;Model Grade&#9;price&#10;CA&#9;iPad Air 3 64GB WiFi-D&#9;$35&#10;CA&#9;iPad Air 4 64GB WiFi-D&#9;$120"></textarea>
+      <div class="hint" style="margin-top:8px">You can paste directly from Excel. Required: Region and Model Grade. Optional: price/offer, Variant, Location/Warehouse. Price can include $ or commas; they will be cleaned automatically. Put <strong>ALL</strong> in Region to take that model from every region (HK, HK_VZW, HK_IE_FSET, US, CA, …). Batch shortcuts: <strong>VZW</strong> = HK_VZW, <strong>FSET</strong> = HK_IE_FSET.</div>
+      <textarea id="batchPasteBox" placeholder="Region&#9;Model Grade&#9;price&#10;ALL&#9;iPhone 14 128GB-A&#9;$280&#10;FSET&#9;iPad Air 4 64GB WiFi-D&#9;$120&#10;VZW&#9;iPhone 13 128GB-A&#9;$150&#10;CA&#9;iPad Air 3 64GB WiFi-D&#9;$35"></textarea>
       <div class="row" style="margin-top:8px">
         <button id="btnBatchPaste" title="Apply the pasted batch filter table">Apply pasted batch filter</button>
         <button id="btnClearBatchPaste" title="Clear pasted batch filter text">Clear pasted text</button>
@@ -887,18 +887,23 @@ DE_SUPPORT_MVAT_B2B\tDE`;
   function normalizeBatchModelKey(v){
     return String(v || '').trim().replace(/\s{2,}/g,' ').toLowerCase();
   }
+  function isBatchAllRegionValue(v){
+    const s = String(v == null ? '' : v).trim().toUpperCase().replace(/\s+/g,' ');
+    return /^(ALL|ANY|\*|ALL REGION|ALL REGIONS|EVERY|EVERYWHERE|GLOBAL)$/.test(s);
+  }
+  function normalizeBatchRegionValue(v){
+    // ALL = every region that has this model grade, including HK / HK_VZW / HK_IE_FSET.
+    if(isBatchAllRegionValue(v)) return 'ALL';
+    return canonicalizeRegionCode(v);
+  }
   function makeBatchPairKey(region, modelGrade){
-    return canonicalizeRegionCode(region || '') + '\t' + normalizeBatchModelKey(modelGrade);
+    return normalizeBatchRegionValue(region || '') + '\t' + normalizeBatchModelKey(modelGrade);
   }
   function normalizeBatchLocationKey(v){
     return String(v || '').trim().toUpperCase();
   }
   function normalizeBatchVariantKey(v){
     return String(v || '').trim().toLowerCase();
-  }
-  function isBatchAllRegionValue(v){
-    const s = String(v == null ? '' : v).trim();
-    return /^(ALL|ANY|\*)$/i.test(s);
   }
   function isBatchAllLocationValue(v){
     const s = String(v == null ? '' : v).trim();
@@ -3365,7 +3370,7 @@ for(const country of countries){
 
     rows.forEach(r => {
       const regionRaw = String(r[colRegion]||'').trim();
-      const region = isBatchAllRegionValue(regionRaw) ? 'ALL' : canonicalizeRegionCode(regionRaw);
+      const region = normalizeBatchRegionValue(regionRaw);
       const mgRaw = String(r[colModelGrade]||'').trim();
       if(!region || !mgRaw) return;
 
