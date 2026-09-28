@@ -1,0 +1,142 @@
+/* Design tokens — Margin Sheet Tool v2.
+   Light-first on :root. Dark redefinitions are applied twice so both an OS dark
+   preference and an explicit toggle resolve as a set (see artifact-design notes). */
+
+:root {
+  color-scheme: light;
+
+  /* Grounds */
+  --bg-app: #f5f6f9;
+  --bg-card: #ffffff;
+  --bg-subtle: #eef1f6;
+  --bg-inset: #f7f8fb;
+
+  /* Text */
+  --text-primary: #1a2230;
+  --text-secondary: #5a6478;
+  --text-muted: #8a93a6;
+  --text-inverse: #ffffff;
+
+  /* Lines */
+  --border: #e2e6ed;
+  --border-strong: #cdd3de;
+  --border-focus: #2f5fe0;
+
+  /* Accent (single restrained blue) */
+  --primary: #2f5fe0;
+  --primary-hover: #2954c7;
+  --primary-press: #254cbc;
+  --primary-tint: #eaf0fe;
+  --primary-tint-strong: #d7e3fd;
+
+  /* Semantic — separate hues, not the accent */
+  --success: #138a4a;
+  --success-tint: #e4f4ec;
+  --success-border: #bfe6cf;
+  --warning: #b26a00;
+  --warning-tint: #fbf0dd;
+  --warning-border: #f1d9b0;
+  --danger: #c0332b;
+  --danger-tint: #fbe9e7;
+  --danger-border: #f1c5c1;
+
+  /* Typography */
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+
+  /* Radii */
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-pill: 999px;
+
+  /* Elevation */
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, .04), 0 1px 1px rgba(16, 24, 40, .03);
+  --shadow-md: 0 4px 12px rgba(16, 24, 40, .06), 0 1px 3px rgba(16, 24, 40, .04);
+  --shadow-focus: 0 0 0 3px rgba(47, 95, 224, .18);
+
+  /* Spacing scale */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-7: 32px;
+
+  /* Motion */
+  --ease: cubic-bezier(.2, .6, .2, 1);
+  --dur-fast: 120ms;
+  --dur: 180ms;
+}
+
+/* Dark theme: OS preference (when no explicit choice is stamped). */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg-app: #14171d;
+    --bg-card: #1c2028;
+    --bg-subtle: #222732;
+    --bg-inset: #1a1e26;
+    --text-primary: #e7ebf2;
+    --text-secondary: #a3acbd;
+    --text-muted: #7b8499;
+    --text-inverse: #14171d;
+    --border: #2c323e;
+    --border-strong: #3a4150;
+    --border-focus: #6f97f0;
+    --primary: #5b86f0;
+    --primary-hover: #6f97f0;
+    --primary-press: #4a76e6;
+    --primary-tint: #1f2a44;
+    --primary-tint-strong: #28365a;
+    --success: #3cb371;
+    --success-tint: #1c3329;
+    --success-border: #2a4a3a;
+    --warning: #d99a3d;
+    --warning-tint: #3a2c17;
+    --warning-border: #4a3a20;
+    --danger: #e06960;
+    --danger-tint: #3a1f1d;
+    --danger-border: #4d2a27;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, .3);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, .35);
+    --shadow-focus: 0 0 0 3px rgba(91, 134, 240, .3);
+  }
+}
+
+/* Dark theme: explicit toggle wins regardless of OS. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg-app: #14171d;
+  --bg-card: #1c2028;
+  --bg-subtle: #222732;
+  --bg-inset: #1a1e26;
+  --text-primary: #e7ebf2;
+  --text-secondary: #a3acbd;
+  --text-muted: #7b8499;
+  --text-inverse: #14171d;
+  --border: #2c323e;
+  --border-strong: #3a4150;
+  --border-focus: #6f97f0;
+  --primary: #5b86f0;
+  --primary-hover: #6f97f0;
+  --primary-press: #4a76e6;
+  --primary-tint: #1f2a44;
+  --primary-tint-strong: #28365a;
+  --success: #3cb371;
+  --success-tint: #1c3329;
+  --success-border: #2a4a3a;
+  --warning: #d99a3d;
+  --warning-tint: #3a2c17;
+  --warning-border: #4a3a20;
+  --danger: #e06960;
+  --danger-tint: #3a1f1d;
+  --danger-border: #4d2a27;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, .35);
+  --shadow-focus: 0 0 0 3px rgba(91, 134, 240, .3);
+}
+
+/* Optional explicit light override (when toggle set to light on a dark OS). */
+:root[data-theme="light"] { color-scheme: light; }
