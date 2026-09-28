@@ -67,6 +67,7 @@
   </div>
   <div class="row" style="margin-top:10px">
     <button id="updateLiveRatesBtn">Get latest online rates</button>
+    <button id="resetFallbackRatesBtn">Reset to built-in fallback rates</button>
     <span id="liveRateStatus" class="muted">Using built-in fallback rates.</span>
   </div>
   <div id="extraRates" class="row" style="margin-top:10px"></div>
@@ -172,13 +173,14 @@ const requiredCols = ['Site', 'Key Product', 'Short SKU', 'SKU', 'Paid price', '
 // online rate request is unavailable. USD itself is always fixed at 1.
 const FALLBACK_USD_RATES = Object.freeze({
   USD: 1,
-  AUD: 0.704785,
-  EUR: 1.15258,
-  HKD: 0.127443,
-  JPY: 0.0062737,
-  KRW: 0.000702267,
-  TWD: 0.0311052
+  AUD: 0.701366543,
+  EUR: 1.138490544,
+  HKD: 0.127478046,
+  JPY: 0.006349635,
+  KRW: 0.000737439,
+  TWD: 0.031480794
 });
+const FALLBACK_RATES_DATE = '2026-09-28';
 const BUILT_IN_CURRENCIES = new Set(Object.keys(FALLBACK_USD_RATES));
 const LIVE_RATE_URL = 'https://open.er-api.com/v6/latest/USD';
 
@@ -212,6 +214,13 @@ function setLiveRateStatus(message, type = 'muted') {
   el.innerHTML = `<span class="${cls}">${escapeHtml(message)}</span>`;
 }
 
+function allRateCurrencies() {
+  // Every currency with an input on screen: built-ins plus extras added from the loaded file.
+  return [...document.querySelectorAll('input[id^="rate_"]')]
+    .map(el => el.id.slice(5))
+    .filter(Boolean);
+}
+
 async function updateLiveRates() {
   const btn = document.getElementById('updateLiveRatesBtn');
   if (!btn) return;
@@ -231,15 +240,20 @@ async function updateLiveRates() {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
     const data = await response.json();
-    if (!data || data.result !== 'success' || !data.rates) {
+    if (data && data.result && data.result !== 'success') {
+      throw new Error('Rate API reported: ' + (data['error-type'] || data.result));
+    }
+    const rates = data && data.rates ? data.rates : data;
+    if (!rates || typeof rates !== 'object' || !Object.keys(rates).length) {
       throw new Error('Invalid rate response');
     }
 
     const missingFromLive = [];
     let updated = 0;
-    for (const currency of Object.keys(FALLBACK_USD_RATES)) {
-      if (currency === 'USD') continue;
-      const usdToCurrency = Number(data.rates[currency]);
+    // Update every rate input on screen, not just the built-in fallback set.
+    for (const currency of allRateCurrencies()) {
+      if (currency.toUpperCase() === 'USD') continue;
+      const usdToCurrency = Number(rates[currency] ?? rates[currency.toUpperCase()]);
       if (!Number.isFinite(usdToCurrency) || usdToCurrency <= 0) {
         missingFromLive.push(currency);
         continue;
@@ -258,9 +272,8 @@ async function updateLiveRates() {
       setLiveRateStatus(`Updated ${updated} rate(s) from the online source.${detail}`, 'ok');
     }
   } catch (err) {
-    applyFallbackRates();
     const reason = err && err.name === 'AbortError' ? 'request timed out' : (err && err.message ? err.message : 'request failed');
-    setLiveRateStatus(`Online update failed (${reason}). Built-in fallback rates restored.`, 'error');
+    setLiveRateStatus(`Online update failed (${reason}). Existing rates kept — use the built-in fallback button to reset.`, 'error');
   } finally {
     clearTimeout(timeoutId);
     btn.disabled = false;
@@ -468,13 +481,17 @@ function setupCurrencyUI() {
   extraRates.innerHTML = '';
 
   extra.forEach(c => {
+    // Reuse an existing rate input across file loads so a fetched or manually
+    // entered rate survives loading a new CSV.
+    if (document.getElementById('rate_' + c)) return;
     const label = document.createElement('label');
     label.innerHTML = `${escapeHtml(c)} → USD<br><input id="rate_${escapeHtml(c)}" type="number" step="0.000000001" placeholder="required">`;
     extraRates.appendChild(label);
   });
 
-  const detectedBuiltIn = currencies.filter(c => BUILT_IN_CURRENCIES.has(c));
-  applyFallbackRates(detectedBuiltIn);
+  // Only fill rates that are still empty — never overwrite existing values.
+  const emptyBuiltIn = currencies.filter(c => BUILT_IN_CURRENCIES.has(c) && !rateFor(c));
+  applyFallbackRates(emptyBuiltIn);
 
   document.getElementById('currencyInfo').innerHTML =
     'Detected currencies: ' + currencies.map(c => `<span class="pill">${escapeHtml(c)}</span>`).join(' ') +
@@ -941,6 +958,10 @@ function handleView(builder, title) {
 
 document.getElementById('loadBtn').onclick = loadFile;
 document.getElementById('updateLiveRatesBtn').onclick = updateLiveRates;
+document.getElementById('resetFallbackRatesBtn').onclick = () => {
+  applyFallbackRates();
+  setLiveRateStatus(`Built-in fallback rates restored (as of ${FALLBACK_RATES_DATE}).`);
+};
 document.getElementById('downloadCostReportBtn').onclick = () => handleDownload(buildCostReport, 'cost_report.csv');
 document.getElementById('downloadFullSkuCostReportBtn').onclick = () => handleDownload(buildFullSkuCostReport, 'cost_report_full_sku.csv');
 document.getElementById('downloadSourceReportBtn').onclick = () => handleDownload(buildSourceReport, 'cost_report_outlining_source.csv');
