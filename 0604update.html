@@ -101,8 +101,8 @@
     </div>
     <details class="section" id="batchPasteDetails">
       <summary>Paste batch filter rows — Region / Model Grade / price</summary>
-      <div class="hint" style="margin-top:8px">You can paste directly from Excel. Required: Region and Model Grade. Optional: price/offer, Variant, Location/Warehouse. Price can include $ or commas; they will be cleaned automatically.</div>
-      <textarea id="batchPasteBox" placeholder="Region&#9;Model Grade&#9;price&#10;CA&#9;iPad Air 3 64GB WiFi-D&#9;$35&#10;CA&#9;iPad Air 4 64GB WiFi-D&#9;$120"></textarea>
+      <div class="hint" style="margin-top:8px">You can paste directly from Excel. Required: Region and Model Grade. Optional: price/offer, Variant, Location/Warehouse. Price can include $ or commas; they will be cleaned automatically. Put <strong>ALL</strong> in Region to take that model from every region (HK, HK_VZW, HK_IE_FSET, US, CA, …). Batch shortcuts: <strong>VZW</strong> = HK_VZW, <strong>FSET</strong> = HK_IE_FSET.</div>
+      <textarea id="batchPasteBox" placeholder="Region&#9;Model Grade&#9;price&#10;ALL&#9;iPhone 14 128GB-A&#9;$280&#10;FSET&#9;iPad Air 4 64GB WiFi-D&#9;$120&#10;VZW&#9;iPhone 13 128GB-A&#9;$150&#10;CA&#9;iPad Air 3 64GB WiFi-D&#9;$35"></textarea>
       <div class="row" style="margin-top:8px">
         <button id="btnBatchPaste" title="Apply the pasted batch filter table">Apply pasted batch filter</button>
         <button id="btnClearBatchPaste" title="Clear pasted batch filter text">Clear pasted text</button>
@@ -175,7 +175,7 @@
     </div>
 
     <details class="section">
-      <summary>Region classification (click to open) — defaults loaded; you can add more lines (format: <span class="kbd">LOCATION_CODE<tab>REGION</tab></span>)</summary>
+      <summary>Region classification (click to open) — defaults loaded; you can add more lines (format: <span class="kbd">LOCATION_CODE<tab>REGION</tab></span>). VZW warehouses are region HK_VZW; IEFSET warehouses are region HK_IE_FSET. Batch region codes: VZW and FSET.</summary>
       <textarea id="regionMapBox"></textarea>
       <div class="row" style="margin-top:8px">
         <button id="btnApplyMap">Apply Mapping</button>
@@ -498,8 +498,10 @@ US_RMA\tUS
 AU_IE_B2B_Boxed\tAU
 AU_B2B\tAU
 AU_IE_B2B\tAU
-HK_FSET_B2B\tHK
-HK_FSET_RMA\tHK
+HK_FSET_B2B\tHK_IE_FSET
+HK_FSET_RMA\tHK_IE_FSET
+HK_FSET_B2B_BOXED\tHK_IE_FSET
+HK_FSET_B2B_VZW\tHK_VZW
 AU_RMA\tAU
 DHL_DE\tIE
 DHL_FR\tIE
@@ -516,8 +518,11 @@ AU_IE_RMA\tAU
 UK_IE_VAT_B2C\tUK
 UK_IE_VAT_RMA\tUK
 UK_MRC_MVA_RMA\tUK
-HK_IE_FSET_B2B\tHK
-HK_IE_FSET_RMA\tHK
+HK_IE_FSET_B2B\tHK_IE_FSET
+HK_IE_FSET_RMA\tHK_IE_FSET
+HK_IE_FSET_B2B_BOXED\tHK_IE_FSET
+HK_HTR_B2B_VZW\tHK_VZW
+HK_HTR_B2B_VZW_BOXED\tHK_VZW
 US_IE_B2B\tUS
 US_IE_RMA\tUS
 IE_IE_MVA_B2B\tIE
@@ -735,7 +740,11 @@ DE_SUPPORT_MVAT_B2B\tDE`;
   const LAST_ASP_LOOKUP_CODE_BY_COUNTRY = {
     DUB: 'AE',
     DUB2: 'AE',
-    UAE: 'AE'
+    UAE: 'AE',
+    HK_VZW: 'HK',
+    HK_IE_FSET: 'HK',
+    VZW: 'HK',
+    FSET: 'HK'
   };
 
   function mapLastAspCountryToCode(name){
@@ -878,18 +887,23 @@ DE_SUPPORT_MVAT_B2B\tDE`;
   function normalizeBatchModelKey(v){
     return String(v || '').trim().replace(/\s{2,}/g,' ').toLowerCase();
   }
+  function isBatchAllRegionValue(v){
+    const s = String(v == null ? '' : v).trim().toUpperCase().replace(/\s+/g,' ');
+    return /^(ALL|ANY|\*|ALL REGION|ALL REGIONS|EVERY|EVERYWHERE|GLOBAL)$/.test(s);
+  }
+  function normalizeBatchRegionValue(v){
+    // ALL = every region that has this model grade, including HK / HK_VZW / HK_IE_FSET.
+    if(isBatchAllRegionValue(v)) return 'ALL';
+    return canonicalizeRegionCode(v);
+  }
   function makeBatchPairKey(region, modelGrade){
-    return String(region || '').trim().toUpperCase() + '\t' + normalizeBatchModelKey(modelGrade);
+    return normalizeBatchRegionValue(region || '') + '\t' + normalizeBatchModelKey(modelGrade);
   }
   function normalizeBatchLocationKey(v){
     return String(v || '').trim().toUpperCase();
   }
   function normalizeBatchVariantKey(v){
     return String(v || '').trim().toLowerCase();
-  }
-  function isBatchAllRegionValue(v){
-    const s = String(v == null ? '' : v).trim();
-    return /^(ALL|ANY|\*)$/i.test(s);
   }
   function isBatchAllLocationValue(v){
     const s = String(v == null ? '' : v).trim();
@@ -1294,16 +1308,32 @@ DE_SUPPORT_MVAT_B2B\tDE`;
     return XLSX.utils.sheet_to_json(ws,{defval:'',raw:false});
   }
 
+  function canonicalizeRegionCode(value){
+    const s = String(value || '').trim().toUpperCase();
+    if(!s) return '';
+    if(s === 'VZW' || s === 'HK_VZW' || /(?:^|_)VZW(?:_|$)/.test(s)) return 'HK_VZW';
+    if(s === 'FSET' || s === 'IEFSET' || s === 'HK_FSET' || s === 'HK_IE_FSET' || s.includes('FSET')) return 'HK_IE_FSET';
+    return s;
+  }
+  function regionFromLocationCode(loc){
+    const raw = String(loc || '').trim();
+    if(!raw) return '';
+    const forced = canonicalizeRegionCode(raw);
+    if(forced === 'HK_VZW' || forced === 'HK_IE_FSET') return forced;
+    if(DATA.regionMap && DATA.regionMap[raw]) return String(DATA.regionMap[raw]).trim().toUpperCase();
+    if(raw.includes('_')) return raw.split('_',1)[0].toUpperCase();
+    if(/^[A-Za-z]{2}/.test(raw)) return raw.slice(0,2).toUpperCase();
+    return '';
+  }
   function deriveCountryFromMapping(row, colCountry, colLocation){
-    let c = (colCountry? String(row[colCountry]||'').trim() : '');
-    if(!c){
-      const loc = String(colLocation? row[colLocation]||'' : '').trim();
-      if(loc && DATA.regionMap[loc] ) c = DATA.regionMap[loc];
-      else if(loc.includes('_')) c = loc.split('_',1)[0];
-      else if(/^[A-Za-z]{2}/.test(loc)) c = loc.slice(0,2);
-    }
-    c = (c||'Unknown').toUpperCase();
-    if(c==='SCHJP') c='JP';
+    const loc = String(colLocation ? row[colLocation] || '' : '').trim();
+    const locRegion = regionFromLocationCode(loc);
+    // VZW / IEFSET stay their own regions even if an old map or Country column says HK.
+    if(locRegion === 'HK_VZW' || locRegion === 'HK_IE_FSET') return locRegion;
+    let c = (colCountry ? String(row[colCountry] || '').trim() : '');
+    if(!c) c = locRegion;
+    c = canonicalizeRegionCode(c) || (c || 'Unknown').toUpperCase();
+    if(c === 'SCHJP') c = 'JP';
     return c;
   }
 
@@ -3340,7 +3370,7 @@ for(const country of countries){
 
     rows.forEach(r => {
       const regionRaw = String(r[colRegion]||'').trim();
-      const region = isBatchAllRegionValue(regionRaw) ? 'ALL' : regionRaw.toUpperCase();
+      const region = normalizeBatchRegionValue(regionRaw);
       const mgRaw = String(r[colModelGrade]||'').trim();
       if(!region || !mgRaw) return;
 
