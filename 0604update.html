@@ -1386,7 +1386,12 @@ DE_SUPPORT_MVAT_B2B\tDE`;
           let modelName = '';
           if(colModel) modelName = String(r[colModel]||'').toLowerCase();
           const isSe3 = /iphone\s*se\s*(3|3rd|third)/i.test(modelName);
-          if(/United\s*States/i.test(v) && !isSe3) sim = 'E Sim';
+          // Newer variants label eSIM directly, e.g.
+          // "A3522 eSIM only (Bahrain, Canada, Guam, Japan, Kuwait, Mexico, Oman, Qatar, Saudi Arabia, United Arab Emirates, and U.S. Virgin Islands)"
+          const explicitEsim = /\be\s*-?\s*sim\b/i.test(v);
+          // Legacy heuristic: "United States" in the variant means eSIM, except iPhone SE 3.
+          const usHeuristic = /United\s*States/i.test(v) && !isSe3;
+          if(explicitEsim || usHeuristic) sim = 'E Sim';
         }
       }
       const isLocked = isLockedSku(sku);
