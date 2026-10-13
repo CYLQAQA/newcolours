@@ -101,7 +101,7 @@
     </div>
     <details class="section" id="batchPasteDetails">
       <summary>Paste batch filter rows — Region / Model Grade / price</summary>
-      <div class="hint" style="margin-top:8px">You can paste directly from Excel. Required: Region and Model Grade. Optional: price/offer, Variant, Location/Warehouse. Price can include $ or commas; they will be cleaned automatically. Put <strong>ALL</strong> in Region to take that model from every region (HK, HK_VZW, HK_IE_FSET, US, CA, …). Batch shortcuts: <strong>VZW</strong> = HK_VZW, <strong>FSET</strong> = HK_IE_FSET.</div>
+      <div class="hint" style="margin-top:8px">You can paste directly from Excel. Required: Region and Model Grade. Optional: price/offer, Variant, Location/Warehouse. Price can include $ or commas; they will be cleaned automatically. Put <strong>ALL</strong> in Region to take that model from every region (HK, HK_VZW, HK_IE_FSET, US, CA, …). Batch shortcuts: <strong>VZW</strong> = HK_VZW, <strong>FSET</strong> = HK_IE_FSET. Location carve-outs are exact only: HK_HTR_B2B_VZW and HK_IE_FSET_B2B.</div>
       <textarea id="batchPasteBox" placeholder="Region&#9;Model Grade&#9;price&#10;ALL&#9;iPhone 14 128GB-A&#9;$280&#10;FSET&#9;iPad Air 4 64GB WiFi-D&#9;$120&#10;VZW&#9;iPhone 13 128GB-A&#9;$150&#10;CA&#9;iPad Air 3 64GB WiFi-D&#9;$35"></textarea>
       <div class="row" style="margin-top:8px">
         <button id="btnBatchPaste" title="Apply the pasted batch filter table">Apply pasted batch filter</button>
@@ -175,7 +175,7 @@
     </div>
 
     <details class="section">
-      <summary>Region classification (click to open) — defaults loaded; you can add more lines (format: <span class="kbd">LOCATION_CODE<tab>REGION</tab></span>). VZW warehouses are region HK_VZW; IEFSET warehouses are region HK_IE_FSET. Batch region codes: VZW and FSET.</summary>
+      <summary>Region classification (click to open) — defaults loaded; you can add more lines (format: <span class="kbd">LOCATION_CODE<tab>REGION</tab></span>). Exact location carve-outs: HK_HTR_B2B_VZW → HK_VZW, HK_IE_FSET_B2B → HK_IE_FSET. These are excluded from HK. Batch region codes: VZW and FSET.</summary>
       <textarea id="regionMapBox"></textarea>
       <div class="row" style="margin-top:8px">
         <button id="btnApplyMap">Apply Mapping</button>
@@ -498,10 +498,6 @@ US_RMA\tUS
 AU_IE_B2B_Boxed\tAU
 AU_B2B\tAU
 AU_IE_B2B\tAU
-HK_FSET_B2B\tHK_IE_FSET
-HK_FSET_RMA\tHK_IE_FSET
-HK_FSET_B2B_BOXED\tHK_IE_FSET
-HK_FSET_B2B_VZW\tHK_VZW
 AU_RMA\tAU
 DHL_DE\tIE
 DHL_FR\tIE
@@ -519,10 +515,7 @@ UK_IE_VAT_B2C\tUK
 UK_IE_VAT_RMA\tUK
 UK_MRC_MVA_RMA\tUK
 HK_IE_FSET_B2B\tHK_IE_FSET
-HK_IE_FSET_RMA\tHK_IE_FSET
-HK_IE_FSET_B2B_BOXED\tHK_IE_FSET
 HK_HTR_B2B_VZW\tHK_VZW
-HK_HTR_B2B_VZW_BOXED\tHK_VZW
 US_IE_B2B\tUS
 US_IE_RMA\tUS
 IE_IE_MVA_B2B\tIE
@@ -1309,17 +1302,23 @@ DE_SUPPORT_MVAT_B2B\tDE`;
   }
 
   function canonicalizeRegionCode(value){
+    // Batch / region-code shortcuts only. Do not pattern-match location codes.
     const s = String(value || '').trim().toUpperCase();
     if(!s) return '';
-    if(s === 'VZW' || s === 'HK_VZW' || /(?:^|_)VZW(?:_|$)/.test(s)) return 'HK_VZW';
-    if(s === 'FSET' || s === 'IEFSET' || s === 'HK_FSET' || s === 'HK_IE_FSET' || s.includes('FSET')) return 'HK_IE_FSET';
+    if(s === 'VZW' || s === 'HK_VZW') return 'HK_VZW';
+    if(s === 'FSET' || s === 'IEFSET' || s === 'HK_IE_FSET') return 'HK_IE_FSET';
     return s;
   }
+  // Exact location carve-outs. These are excluded from the normal HK region.
+  const EXACT_LOCATION_REGION = {
+    'HK_HTR_B2B_VZW': 'HK_VZW',
+    'HK_IE_FSET_B2B': 'HK_IE_FSET'
+  };
   function regionFromLocationCode(loc){
     const raw = String(loc || '').trim();
     if(!raw) return '';
-    const forced = canonicalizeRegionCode(raw);
-    if(forced === 'HK_VZW' || forced === 'HK_IE_FSET') return forced;
+    // Exact match only — no substring / token force.
+    if(EXACT_LOCATION_REGION[raw]) return EXACT_LOCATION_REGION[raw];
     if(DATA.regionMap && DATA.regionMap[raw]) return String(DATA.regionMap[raw]).trim().toUpperCase();
     if(raw.includes('_')) return raw.split('_',1)[0].toUpperCase();
     if(/^[A-Za-z]{2}/.test(raw)) return raw.slice(0,2).toUpperCase();
@@ -1328,7 +1327,7 @@ DE_SUPPORT_MVAT_B2B\tDE`;
   function deriveCountryFromMapping(row, colCountry, colLocation){
     const loc = String(colLocation ? row[colLocation] || '' : '').trim();
     const locRegion = regionFromLocationCode(loc);
-    // VZW / IEFSET stay their own regions even if an old map or Country column says HK.
+    // Exact carve-outs stay their own regions even if Country column says HK.
     if(locRegion === 'HK_VZW' || locRegion === 'HK_IE_FSET') return locRegion;
     let c = (colCountry ? String(row[colCountry] || '').trim() : '');
     if(!c) c = locRegion;
@@ -1872,7 +1871,7 @@ DE_SUPPORT_MVAT_B2B\tDE`;
               if(agg && agg.rows && agg.rows.length){
                 for(let idx=0; idx < agg.rows.length; idx++){
                   const it = agg.rows[idx];
-                  const qEff = getEffectiveItemQty(it);
+                  const qEff = getEffectiveItemQty(it, agg);
                   if(qEff <= 0) continue;
                   const subKey = key + '\u0002' + idx;
                   const subEnt = ORDER_ENTRIES[subKey] || {};
@@ -2261,7 +2260,7 @@ DE_SUPPORT_MVAT_B2B\tDE`;
       let qtyNeeded = qty;
       const price = offer;
       for(const it of agg.rows){
-        const qEff = getEffectiveItemQty(it);
+        const qEff = getEffectiveItemQty(it, agg);
         if(qEff <= 0) continue;
         const qTake = qtyNeeded >= qEff ? qEff : qtyNeeded;
         if(qTake > 0){
@@ -2318,7 +2317,7 @@ DE_SUPPORT_MVAT_B2B\tDE`;
       let qtyNeeded = qty;
       const price = offer;
       for(const it of agg.rows){
-        const qEff = getEffectiveItemQty(it);
+        const qEff = getEffectiveItemQty(it, agg);
         if(qEff <= 0) continue;
         const qTake = qtyNeeded >= qEff ? qEff : qtyNeeded;
         if(qTake > 0){
