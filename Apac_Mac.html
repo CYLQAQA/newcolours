@@ -156,6 +156,13 @@
         <label for="productFile">Product mapping file</label>
         <input id="productFile" type="file" accept=".xlsx,.xls,.csv" />
         <p class="hint">Required columns: sku, pricing_sku, en_name.</p>
+        <br />
+        <label for="pricelockFile">Price-lock exclusion file (optional)</label>
+        <input id="pricelockFile" type="file" accept=".xlsx,.xls,.csv" />
+        <p class="hint">Upload the V2 price-lock file to exclude C/Z/W stock matching its SKU and Location (region). Matches include every RAM and keyboard variant. Leave empty to generate the list without price-lock exclusions.</p>
+        <div class="actions">
+          <button id="clearPricelockBtn" type="button">Remove price-lock file</button>
+        </div>
         <div class="actions">
           <button id="processBtn">Process and Download Excel</button>
           <button id="clearBtn" type="button">Clear Log</button>
@@ -167,6 +174,7 @@
         <table class="small-table">
           <tr><td>Categories kept</td><td>Laptops, Computers</td></tr>
           <tr><td>Regions kept</td><td>HK, JP, AU, CA, DUB</td></tr>
+          <tr><td>Optional price lock</td><td>Excludes C/Z/W by short SKU + region, before grouping. Required columns: SKU, Location.</td></tr>
           <tr><td>CA mapping</td><td>CA_B2B, CA_B2B_Boxed</td></tr>
           <tr><td>DUB mapping</td><td>DUB_B2B, DUB_B2B_BOXED, DUB_B2B_2</td></tr>
           <tr><td>RAM extraction</td><td>Detects values like 8GB, 16GB, 24 GB and removes colour text</td></tr>
@@ -248,6 +256,7 @@ const CURRENCY_RATES = {
 
 const TARGET_COUNTRIES = new Set(['HK', 'JP', 'AU', 'CA', 'DUB']);
 const TARGET_CATEGORIES = new Set(['Laptops', 'Computers']);
+const PRICELOCK_GRADES = new Set(['C', 'Z', 'W']);
 
 const WORKING_COLUMNS = [
   'Ref.no', 'Product Family', 'Processor Speed', 'RAM Size', 'Storage Capacity',
@@ -417,12 +426,43 @@ function buildProductLookup(productRows) {
   return lookup;
 }
 
-function prepareRows(stockRows, productRows) {
+function pricelockKey(shortSku, country) {
+  return `${String(shortSku || '').trim().toUpperCase()}|${String(country || '').trim().toUpperCase()}`;
+}
+
+function getPricelockShortSku(sku) {
+  const parts = String(sku || '').trim().toUpperCase().split('-');
+  if (parts.length !== 8 || !['CP', 'LP'].includes(parts[0]) || parts.some(part => !part)) return '';
+  // Keep category, brand, model, capacity and processor/GPU; omit keyboard, RAM/colour and grade.
+  return [parts[0], parts[1], parts[2], parts[4], parts[6]].join('-');
+}
+
+function buildPricelockExclusions(pricelockRows) {
+  const exclusions = new Set();
+  if (pricelockRows == null) return exclusions;
+  requireColumns(pricelockRows, ['SKU', 'Location'], 'Price-lock file');
+  const get = makeColumnAccessor(pricelockRows);
+  pricelockRows.forEach((row, index) => {
+    const sku = String(get(row, 'SKU') || '').trim().toUpperCase();
+    const country = String(get(row, 'Location') || '').trim().toUpperCase();
+    if (!sku && !country) return;
+    const parts = sku.split('-');
+    if (parts.length !== 5 || !['CP', 'LP'].includes(parts[0]) || parts.some(part => !part) || !TARGET_COUNTRIES.has(country)) {
+      throw new Error(`Price-lock file row ${index + 2}: expected a five-part Mac short SKU and Location HK, JP, AU, CA or DUB.`);
+    }
+    exclusions.add(pricelockKey(sku, country));
+  });
+  if (!exclusions.size) throw new Error('Price-lock file has no short SKU + region entries. Remove the optional file to continue without exclusions.');
+  return exclusions;
+}
+
+function prepareRows(stockRows, productRows, pricelockRows = null) {
   requireColumns(stockRows, ['Category', 'location_code', 'SKU', 'Colour', 'qty_available', 'floor_price', 'currency'], 'Stock file');
   requireColumns(productRows, ['sku', 'pricing_sku', 'en_name'], 'Product file');
 
   const stockGet = makeColumnAccessor(stockRows);
   const productLookup = buildProductLookup(productRows);
+  const pricelockExclusions = buildPricelockExclusions(pricelockRows);
   const prepared = [];
   const stats = {
     totalStockRows: stockRows.length,
@@ -430,6 +470,11 @@ function prepareRows(stockRows, productRows) {
     afterRegion: 0,
     afterQty: 0,
     missingProductMatches: 0,
+    pricelockKeys: pricelockExclusions.size,
+    pricelockExcludedRows: 0,
+    pricelockExcludedQty: 0,
+    pricelockExcludedByRegion: {},
+    pricelockUnrecognizedSkus: 0,
     outputWorking: 0,
     outputDamaged: 0,
     outputCpoNb: 0
@@ -450,6 +495,19 @@ function prepareRows(stockRows, productRows) {
 
     const sku = String(stockGet(row, 'SKU') || '').trim();
     const grade = getGradeFromSku(sku);
+    if (pricelockExclusions.size && PRICELOCK_GRADES.has(grade.toUpperCase())) {
+      const lockShortSku = getPricelockShortSku(sku);
+      if (!lockShortSku) {
+        stats.pricelockUnrecognizedSkus++;
+      } else if (pricelockExclusions.has(pricelockKey(lockShortSku, country))) {
+        stats.pricelockExcludedRows++;
+        stats.pricelockExcludedQty += qty;
+        if (!stats.pricelockExcludedByRegion[country]) stats.pricelockExcludedByRegion[country] = { rows: 0, qty: 0 };
+        stats.pricelockExcludedByRegion[country].rows++;
+        stats.pricelockExcludedByRegion[country].qty += qty;
+        continue;
+      }
+    }
     const baseSku = stripGradeFromSku(sku);
     const product = productLookup.get(baseSku.toUpperCase());
 
@@ -666,6 +724,7 @@ function yyyymmdd() {
 async function processFiles() {
   const stockFile = document.getElementById('stockFile').files[0];
   const productFile = document.getElementById('productFile').files[0];
+  const pricelockFile = document.getElementById('pricelockFile').files[0];
 
   if (!stockFile || !productFile) {
     alert('Please upload both the stock list file and product mapping file.');
@@ -689,10 +748,30 @@ async function processFiles() {
     const productRows = await readWorkbookRows(productFile);
     log(`Product rows loaded: ${productRows.length}`);
 
-    const { prepared, stats } = prepareRows(stockRows, productRows);
+    let pricelockRows = null;
+    if (pricelockFile) {
+      log(`Reading optional price-lock file: ${pricelockFile.name}`);
+      pricelockRows = await readWorkbookRows(pricelockFile);
+      log(`Price-lock rows loaded: ${pricelockRows.length}`);
+    } else {
+      log('No price-lock file supplied; price-lock exclusion is off.');
+    }
+
+    const { prepared, stats } = prepareRows(stockRows, productRows, pricelockRows);
     log(`Rows after category filter: ${stats.afterCategory}`);
     log(`Rows after region filter: ${stats.afterRegion}`);
     log(`Rows after qty > 0 filter: ${stats.afterQty}`);
+    if (pricelockFile) {
+      log(`Price-lock exclusions: ${stats.pricelockKeys} unique short SKU + region pairs (C/Z/W grades only).`);
+      log(`Excluded by price lock: ${stats.pricelockExcludedRows} stock rows / ${stats.pricelockExcludedQty} units.`);
+      for (const country of TARGET_COUNTRIES) {
+        const excluded = stats.pricelockExcludedByRegion[country] || { rows: 0, qty: 0 };
+        log(`  ${country}: excluded ${excluded.rows} rows / ${excluded.qty} units.`);
+      }
+      if (stats.pricelockUnrecognizedSkus) {
+        throw new Error(`Price-lock filtering could not check ${stats.pricelockUnrecognizedSkus} eligible stock rows because their SKU structure was not recognized. Expected eight parts; no workbook downloaded.`);
+      }
+    }
     log(`Rows prepared for output: ${prepared.length}`);
     if (stats.missingProductMatches) log(`Warning: ${stats.missingProductMatches} rows did not find product mapping.`);
 
@@ -705,7 +784,7 @@ async function processFiles() {
     log(`CPO NB grouped rows: ${cpoNbRows.length}`);
 
     if (!workingRows.length && !damagedRows.length && !cpoNbRows.length) {
-      throw new Error('No rows matched the output rules. Please check category, region, qty, and grade values.');
+      throw new Error('No rows matched the output rules. Please check category, region, qty, grade values, and any optional price-lock exclusions.');
     }
 
     const wb = XLSX.utils.book_new();
@@ -727,6 +806,11 @@ async function processFiles() {
 
 processBtn.addEventListener('click', processFiles);
 clearBtn.addEventListener('click', clearLog);
+document.getElementById('clearPricelockBtn').addEventListener('click', () => {
+  document.getElementById('pricelockFile').value = '';
+  log('Price-lock file removed; the next generation will not apply price-lock exclusions.');
+});
 </script>
 </body>
 </html>
+
