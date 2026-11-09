@@ -123,6 +123,14 @@
       </div>
     </div>
 
+    <details class="section" id="exactModelFilter">
+      <summary>Exact Model filter — <span id="exactModelCount">All models</span></summary>
+      <div class="hint" style="margin-top:8px">Uses the original Model column, independent of capacity and grade. Select multiple models to match any of them; combines with the other filters.</div>
+      <label for="exactModelSearch">Find model:</label>
+      <input id="exactModelSearch" type="text" placeholder="Search model names…" style="margin-top:8px">
+      <div id="exactModelChips" class="chips" style="max-height:240px;overflow:auto" role="group" aria-label="Exact models"></div>
+    </details>
+
     <div class="row section">
       <input id="q" type="text" placeholder="Free text search… (applies to Model/Capacity/Grade)" style="min-width:320px">
       <button id="btnClear">Clear filters</button>
@@ -456,6 +464,47 @@
     const canonical = SYNONYM_MAP[base.toLowerCase()] || base;
     return normalizeModelGradeKey(canonical + (grade ? '-' + grade : ''));
   }
+  function normalizeExactModel(value){ return String(value || '').trim().toLowerCase(); }
+  function buildExactModelFilter(){
+    const box = $('#exactModelChips');
+    box.innerHTML = '';
+    const labels = new Map();
+    const raw = DATA.raw || [];
+    const col = pickCol(Object.keys(raw[0] || {}), ['Model']) || DATA.mapping?.colModel;
+    raw.forEach(row => {
+      const label = String(row[col] || '').trim();
+      if(label && !labels.has(normalizeExactModel(label))) labels.set(normalizeExactModel(label), label);
+    });
+    for(const key of SELECTED_MODELS) if(!labels.has(key)) SELECTED_MODELS.delete(key);
+    const addButton = (key, label) => {
+      const button = document.createElement('button');
+      button.type = 'button'; button.className = 'chipbtn';
+      button.dataset.val = key; button.textContent = label;
+      button.onclick = () => {
+        if(!key) SELECTED_MODELS.clear();
+        else if(SELECTED_MODELS.has(key)) SELECTED_MODELS.delete(key);
+        else SELECTED_MODELS.add(key);
+        updateExactModelFilter(); clearDerivedCaches(); scheduleRender();
+      };
+      box.appendChild(button);
+    };
+    addButton('', 'All models');
+    [...labels].sort((a,b) => a[1].localeCompare(b[1])).forEach(([key,label]) => addButton(key,label));
+    $('#exactModelSearch').oninput = updateExactModelFilter;
+    updateExactModelFilter();
+  }
+  function updateExactModelFilter(){
+    const query = normalizeExactModel($('#exactModelSearch').value);
+    $$('#exactModelChips .chipbtn').forEach(button => {
+      const key = button.dataset.val;
+      const active = key ? SELECTED_MODELS.has(key) : SELECTED_MODELS.size === 0;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', String(active));
+      button.hidden = !!(key && query && !key.includes(query) && !active);
+    });
+    $('#exactModelCount').textContent = SELECTED_MODELS.size ? SELECTED_MODELS.size + ' selected' : 'All models';
+  }
+
   function reprocessWithMapping(){
     if(DATA.raw && DATA.raw.length) processRaw(DATA.raw.slice());
   }
@@ -624,6 +673,7 @@ DE_SUPPORT_MVAT_B2B\tDE`;
 
   function getEffectiveItemQty(item, aggCtx=null){
     if(!item) return 0;
+    if(SELECTED_MODELS.size && !SELECTED_MODELS.has(normalizeExactModel(item.SourceModel))) return 0;
     const loc = String(item.Loc||'').trim();
     if(aggCtx && !batchAllowsItem(aggCtx.Country, aggCtx.Header, item, aggCtx)) return 0;
     if(SELECTED_WAREHOUSES.size && !SELECTED_WAREHOUSES.has(loc)) return 0;
@@ -998,6 +1048,7 @@ DE_SUPPORT_MVAT_B2B\tDE`;
   let SELECTED_CATEGORIES = new Set();
   let SELECTED_SIMS = new Set();
   let SELECTED_WAREHOUSES = new Set();
+  let SELECTED_MODELS = new Set();
 
   // ===== Binary filters for preorder and locked units =====
   // Preorder mode: 'include', 'exclude', or 'only'.
@@ -1024,7 +1075,7 @@ DE_SUPPORT_MVAT_B2B\tDE`;
   }
   function getQtyCacheToken(){
     const wh = Array.from(SELECTED_WAREHOUSES).sort().join(',');
-    return PREORDER_MODE + '|' + (LOCKED_EXCLUDE ? '1' : '0') + '|' + wh + '|' + (BATCH_CACHE_TOKEN || '');
+    return PREORDER_MODE + '|' + (LOCKED_EXCLUDE ? '1' : '0') + '|' + wh + '|' + JSON.stringify(Array.from(SELECTED_MODELS).sort()) + '|' + (BATCH_CACHE_TOKEN || '');
   }
 
   // ===== Summary toggle =====
@@ -1065,13 +1116,15 @@ DE_SUPPORT_MVAT_B2B\tDE`;
   function clearWarehouseError(){ showWarehouseError(''); }
 
   // Try boot from embedded snapshot; if so, remove upload UI (snapshot should be filter-only)
-  (function bootFromSnapshot(){
+  function bootFromSnapshot(){
     try{
       const node=$('#dataset');
       if(node && node.textContent?.trim().length){
         const json=JSON.parse(node.textContent);
         DATA=json;
         ensureEnrichmentStore();
+        // Rebuild detail rows from the embedded source, including original model names.
+        if(DATA.raw?.length) processRaw(DATA.raw);
         populateFilters(true);
         renderTable();
         updateOptionalFileStatus();
@@ -1110,7 +1163,7 @@ DE_SUPPORT_MVAT_B2B\tDE`;
       ensureEnrichmentStore();
       updateOptionalFileStatus();
     }
-  })();
+  }
 
   // Read file (CSV/XLSX)
   // CSV path intentionally uses PapaParse first, then category-prefilters the raw rows
@@ -1344,6 +1397,7 @@ DE_SUPPORT_MVAT_B2B\tDE`;
     const sourceRows = rows.slice();
     const cols = Object.keys(sourceRows[0]||{});
     const colModel = pickCol(cols, ['Model Grade','Model','SKU','Short SKU','Product Name']);
+    const colSourceModel = pickCol(cols, ['Model']) || colModel;
     const colGrade = pickCol(cols, ['Grade','Model Grade Only','Condition']);
     const colColor = pickCol(cols, ['Color','Colour']);
     const colQty   = pickCol(cols, ['Qty_Available','Qty','Quantity','Available Qty','Qty Available']);
@@ -1376,6 +1430,7 @@ DE_SUPPORT_MVAT_B2B\tDE`;
       const loc = colLocation ? String(r[colLocation]||'').trim() : '';
       const network = colNetwork ? String(r[colNetwork]||'').trim() : '';
       const variant = colVariant ? String(r[colVariant]||'').trim() : '';
+      const sourceModel = String(r[colSourceModel] || '').trim();
       const header = buildHeader(r,colModel,colGrade,colCapacity,colCategory,colSku);
       let sim = 'N/A';
       if(category === 'Smartphones'){
@@ -1396,7 +1451,7 @@ DE_SUPPORT_MVAT_B2B\tDE`;
       const isLocked = isLockedSku(sku);
       // Deterministic ID within the loaded source so held stock can be subtracted from the exact original detail row.
       const detailId = 'D' + out.length;
-      const detailRow = {DetailId:detailId, Sku:sku, ShortSku:shortSku, Loc:loc, QtyAvail:qtyAvail, QtyPre:qtyPre, Variant:variant, Network:network, IsLocked:isLocked, Category:category, Header:header};
+      const detailRow = {SourceModel:sourceModel, DetailId:detailId, Sku:sku, ShortSku:shortSku, Loc:loc, QtyAvail:qtyAvail, QtyPre:qtyPre, Variant:variant, Network:network, IsLocked:isLocked, Category:category, Header:header};
       out.push({DetailId:detailId, Country:country, Sim:sim, Header:header, Color:color, Category:category, QtyAvail:qtyAvail, QtyPre:qtyPre, Sku:sku, ShortSku:shortSku, Loc:loc, Network:network, Variant:variant, IsLocked:isLocked});
       const key=country+''+sim+''+header+''+color+''+category;
       if(!map.has(key)){
@@ -1460,6 +1515,7 @@ DE_SUPPORT_MVAT_B2B\tDE`;
     // Regions
     const countries = DATA.meta.countries?.length? DATA.meta.countries : [...new Set(DATA.rows.map(r=>r.Country))].sort();
     buildRegionChips(countries);
+    buildExactModelFilter();
     // Grades
     const grades = DATA.meta.grades?.length? DATA.meta.grades : [...new Set(DATA.rows.map(r=> (r.Header.split('-').slice(-1)[0]||'').toUpperCase()))].filter(Boolean).sort();
     buildGradeChips(grades);
@@ -1753,6 +1809,7 @@ DE_SUPPORT_MVAT_B2B\tDE`;
       selectedSims.slice().sort().join('|'),
       modelTokens.slice().sort().join('|'),
       Array.from(SELECTED_WAREHOUSES).sort().join('|'),
+      JSON.stringify(Array.from(SELECTED_MODELS).sort()),
       PREORDER_MODE,
       LOCKED_EXCLUDE ? '1' : '0',
       BATCH_CACHE_TOKEN || ''
@@ -3209,6 +3266,9 @@ for(const country of countries){
     // Clear search and tokens
     $('#q').value=''; MODEL_TOKENS=[]; renderTokens();
     SELECTED_WAREHOUSES.clear(); renderWarehouseTokens();
+    SELECTED_MODELS.clear();
+    $('#exactModelSearch').value = '';
+    updateExactModelFilter();
     const whInput = document.getElementById('warehouseInput');
     if(whInput) whInput.value = '';
     clearWarehouseError();
@@ -3573,6 +3633,7 @@ for(const country of countries){
   if(btnExtraAllInit) btnExtraAllInit.disabled = !hasExtraColumns();
   if(btnExtraViewInit) btnExtraViewInit.disabled = !hasExtraColumns();
   if(btnRegionMgExtraInit) btnRegionMgExtraInit.disabled = !hasExtraColumns();
+  bootFromSnapshot();
 })();
 </script>
 
