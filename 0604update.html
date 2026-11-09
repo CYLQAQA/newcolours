@@ -163,7 +163,7 @@
     </div>
 
     <div class="section">
-      <div class="muted">Categories (multi-select chips):</div>
+      <div class="muted">Categories (multi-select chips — default: Smartphones, Wearables, Tablets; All includes Accessories, Computers, and Laptops):</div>
       <div id="categoryChips" class="chips"></div>
     </div>
 
@@ -623,6 +623,9 @@ DE_SUPPORT_MVAT_B2B\tDE`;
     if(c.includes('smartphone')) return 'Smartphones';
     if(c.includes('tablet')) return 'Tablets';
     if(c.includes('wearable')) return 'Wearables';
+    if(c.includes('accessor')) return 'Accessories';
+    if(c.includes('computer')) return 'Computers';
+    if(c.includes('laptop')) return 'Laptops';
     return '';
   }
   function isAllowedCategory(raw){
@@ -1045,7 +1048,8 @@ DE_SUPPORT_MVAT_B2B\tDE`;
   // Declare selected sets before the snapshot boot logic so they exist when populateFilters is called.
   let SELECTED_COUNTRIES = new Set();
   let SELECTED_GRADES = new Set();
-  let SELECTED_CATEGORIES = new Set();
+  const DEFAULT_CATEGORIES = ['Smartphones', 'Wearables', 'Tablets'];
+  let SELECTED_CATEGORIES = new Set(DEFAULT_CATEGORIES);
   let SELECTED_SIMS = new Set();
   let SELECTED_WAREHOUSES = new Set();
   let SELECTED_MODELS = new Set();
@@ -1168,7 +1172,7 @@ DE_SUPPORT_MVAT_B2B\tDE`;
   // Read file (CSV/XLSX)
   // CSV path intentionally uses PapaParse first, then category-prefilters the raw rows
   // before Mobile Stock aggregation. This avoids SheetJS CSV row-count quirks and keeps
-  // only the stock categories the tool supports: Smartphones, Tablets, Wearables.
+  // all six supported stock categories; category chips control the initial view.
   let LAST_CATEGORY_PREFILTER_INFO = null;
 
   function isCsvFile(file){
@@ -1178,8 +1182,7 @@ DE_SUPPORT_MVAT_B2B\tDE`;
   }
 
   function isAllowedStockCategoryForImport(value){
-    const c = String(value == null ? '' : value).trim().toLowerCase();
-    return c === 'smartphones' || c === 'tablets' || c === 'wearables';
+    return isAllowedCategory(value);
   }
 
   function findCategoryColumnForImport(cols){
@@ -1412,7 +1415,7 @@ DE_SUPPORT_MVAT_B2B\tDE`;
     const colNetwork = pickCol(cols, ['Network','Network Code','Model Network','Network Carrier','Carrier']);
 
     const inputRows = sourceRows.filter(r => isAllowedCategory(colCategory ? r[colCategory] : ''));
-    if(!inputRows.length) throw new Error('No Smartphones, Tablets, or Wearables rows found in the file');
+    if(!inputRows.length) throw new Error('No supported stock categories found (Smartphones, Tablets, Wearables, Accessories, Computers, Laptops)');
     DATA.raw = inputRows.slice();
 
     const out=[];
@@ -3276,6 +3279,7 @@ for(const country of countries){
     SELECTED_COUNTRIES.clear();
     SELECTED_GRADES.clear();
     SELECTED_CATEGORIES.clear();
+    DEFAULT_CATEGORIES.forEach(category => SELECTED_CATEGORIES.add(category));
     SELECTED_SIMS.clear();
     // Update chip highlights for each box
     updateChipHighlights('#regionChips', SELECTED_COUNTRIES);
