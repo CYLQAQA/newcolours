@@ -72,7 +72,8 @@
             <strong>IEFSET only:</strong> The <code>HK_FSET</code> tab keeps all stock (phones, tablets, wearables, etc.) and uses <code>namematching.xlsx</code> for English names.
             <br><strong>Other tabs:</strong> Unchanged — smartphones only, original <code>Model Capacity-Grade</code> names. Name matching is not applied.
             <br><strong>🔤 Naming file:</strong> Auto-loads <code>namematching.xlsx</code> from the same folder when hosted. Processing waits for that file. Fallback: pick it manually.
-            <br><strong>🇨🇦 CA / 🔧 Floor USD / 🧹 Filtered button:</strong> Unchanged. The orange button still only removes US/HK iPhone 14 Pro Max E Sim qty and all US/HK iPhone 12 Pro Max rows.
+            <br><strong>🇨🇦 CA / 🧹 Filtered button:</strong> Unchanged. The orange button still only removes US/HK iPhone 14 Pro Max E Sim qty and all US/HK iPhone 12 Pro Max rows.
+            <br><strong>Floor pricing:</strong> The new pricing workbook uses <code>Model</code> + <code>US (USD)</code> for W grade in every region. Other grades and unmatched models keep inventory prices. The old floor-price format is also supported.
         </div>
 
         <div class="file-section">
@@ -86,7 +87,7 @@
                 </div>
             </div>
             <div class="file-group">
-                <label class="file-label">2. Floor USD File (Optional):</label>
+                <label class="file-label">2. Floor USD File / Pricing Update (Optional):</label>
                 <div class="file-input-group">
                     <input type="file" id="usdFile" class="file-input" accept=".csv,.xlsx,.xls">
                     <button id="usdButton" class="file-button usd" onclick="document.getElementById('usdFile').click()">💰 Select Floor USD File</button>
@@ -591,6 +592,9 @@
 - Raw CA rows: ${caRows.length}
 - Processed CA rows: ${processedCaData.length}
 - Final CA rows: ${finalCaData.length}
+- Floor price entries loaded: ${processedUsdData.length}
+- Groups using floor file prices: ${finalData.filter(row => row.USDSource === 'floor-file').length}
+- Groups using inventory prices: ${finalData.filter(row => row.USDSource === 'inventory').length}
 - Name map (IEFSET only): ${MAPPING_ACTIVE ? NAME_MAP_SOURCE + ' (' + Object.keys(NAME_MAP).length + ' SKUs)' : 'NOT LOADED — IEFSET used Model + Capacity'}
 `;
 
@@ -785,25 +789,53 @@
             return filtered;
         }
 
+        function floorUsdLookupKey(modelGrade, grade) {
+            const model = String(modelGrade || '').trim()
+                .replace(/-(W|WP|A|B|C|Z|DX|D|F|AS|CP|NB)\s*$/i, '')
+                .replace(/\biPhone\s*SE\s*\(\s*2022\s*\)/i, 'iPhone SE 3rd Gen')
+                .replace(/\biPhone\s*SE\s*\(\s*2020\s*\)/i, 'iPhone SE 2nd Gen')
+                .replace(/(\d+)\s*(GB|TB)\b/gi, '$1$2')
+                .replace(/\s+/g, ' ').trim().toLowerCase();
+            return `${model}|${String(grade || '').trim().toUpperCase()}`;
+        }
+
         function processFloorUsdData(data) {
-            if (!data || data.length === 0) return [];
-            const sampleRow = data[0];
-            const modelGradeCol = sampleRow['Model Grade'] !== undefined ? 'Model Grade' :
-                                 sampleRow['model grade'] !== undefined ? 'model grade' :
-                                 sampleRow['ModelGrade'] !== undefined ? 'ModelGrade' : null;
-            const gradeCol = sampleRow['Grade'] !== undefined ? 'Grade' :
-                            sampleRow['grade'] !== undefined ? 'grade' : null;
-            const priceCol = sampleRow['>500'] !== undefined ? '>500' :
-                            sampleRow['500'] !== undefined ? '500' :
-                            sampleRow['price'] !== undefined ? 'price' : null;
-            if (!modelGradeCol || !gradeCol || !priceCol) return [];
-            return data.map(row => {
-                let modelGrade = (row[modelGradeCol] || '').toString().trim();
-                const grade = (row[gradeCol] || '').toString().trim();
-                const usdPrice = parseFloat(row[priceCol]) || 0;
-                if (modelGrade && grade && !modelGrade.includes('-' + grade)) modelGrade = modelGrade + '-' + grade;
-                return { 'model grade': modelGrade, 'grade': grade, 'usd_price': usdPrice };
+            if (!data || data.length === 0) throw new Error('The floor pricing file has no data rows.');
+            const columns = Object.keys(data[0]);
+            const findColumn = aliases => aliases.map(alias => columns.find(col =>
+                String(col).trim().toLowerCase() === alias
+            )).find(Boolean);
+            const newModelCol = findColumn(['model']);
+            const newPriceCol = findColumn(['us (usd)']);
+            const isPricingUpdate = !!(newModelCol && newPriceCol);
+            const modelCol = isPricingUpdate ? newModelCol : findColumn(['model grade', 'modelgrade']);
+            const gradeCol = findColumn(['grade']);
+            const priceCol = isPricingUpdate ? newPriceCol : findColumn(['>500', '500', 'price']);
+            if (!modelCol || !priceCol || (!isPricingUpdate && !gradeCol)) {
+                throw new Error('Unrecognised floor pricing format. Expected Model + US (USD), or Model Grade + Grade + >500 / 500 / price.');
+            }
+
+            const entries = new Map();
+            data.forEach((row, index) => {
+                const model = String(row[modelCol] == null ? '' : row[modelCol]).trim();
+                const grade = isPricingUpdate ? 'W' : String(row[gradeCol] || '').trim().toUpperCase();
+                const rawPrice = String(row[priceCol] == null ? '' : row[priceCol]).trim();
+                if (!model && !rawPrice && (isPricingUpdate || !grade)) return;
+                if (!model || !grade) throw new Error(`Floor pricing row ${index + 2}: missing model or grade.`);
+                const priceText = rawPrice.replace(/^\$\s*/, '');
+                const usdPrice = Number(priceText.replace(/,/g, ''));
+                if (!/^(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d+)?$/.test(priceText) || !Number.isFinite(usdPrice) || usdPrice < 0) {
+                    throw new Error(`Floor pricing row ${index + 2}: invalid USD price for ${model}.`);
+                }
+                const key = floorUsdLookupKey(model, grade);
+                const previous = entries.get(key);
+                if (previous && previous.usd_price !== usdPrice) {
+                    throw new Error(`Conflicting floor prices for ${model} (${grade}). Please keep one price per model and grade.`);
+                }
+                entries.set(key, { 'model grade': model, 'grade': grade, 'usd_price': usdPrice });
             });
+            if (!entries.size) throw new Error('The floor pricing file has no usable price rows.');
+            return Array.from(entries.values());
         }
 
         function calculateUsdPrice(inventoryData, usdData) {
@@ -824,14 +856,18 @@
                 grouped[key].ESimQty += (row.ESimQty || 0);
                 grouped[key].USD_floor_prices.push(row.USD_floor_price);
             });
-            const usdLookup = {};
-            usdData.forEach(row => { usdLookup[`${row['model grade']}|${row.grade}`] = row.usd_price; });
+            const usdLookup = new Map();
+            usdData.forEach(row => { usdLookup.set(floorUsdLookupKey(row['model grade'], row.grade), row.usd_price); });
             return Object.values(grouped).map(group => {
-                const lookupKey = `${group['Model grade']}|${group.Grade}`;
-                if (usdLookup[lookupKey]) group.USD = usdLookup[lookupKey];
+                const lookupKey = floorUsdLookupKey(group['Model grade'], group.Grade);
+                if (usdLookup.has(lookupKey)) {
+                    group.USD = usdLookup.get(lookupKey);
+                    group.USDSource = 'floor-file';
+                }
                 else {
                     const avg = group.USD_floor_prices.reduce((a, b) => a + b, 0) / group.USD_floor_prices.length;
                     group.USD = avg || 0;
+                    group.USDSource = 'inventory';
                 }
                 delete group.USD_floor_prices;
                 return group;
@@ -927,3 +963,4 @@
     </script>
 </body>
 </html>
+
